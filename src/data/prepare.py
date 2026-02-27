@@ -334,6 +334,10 @@ def download_images(
     downloaded = 0
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Downloading images"):
         url = row[url_col]
+        # Skip rows with missing URL or hasher
+        if pd.isna(url) or pd.isna(row[hasher_col]):
+            continue
+        url = str(url)
         hasher = str(row[hasher_col])
         # If any file for this hasher already exists, skip
         if _find_image_path(output_dir, hasher) is not None:
