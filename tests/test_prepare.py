@@ -95,7 +95,7 @@ class TestConstants:
 
 
 # ===================================================================
-# Test: encode_grouped_labels
+# Test: encode_labels
 # ===================================================================
 
 class TestEncodeLabels:
@@ -306,6 +306,30 @@ class TestLoadMetadata:
     def test_raises_on_missing_file(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             load_metadata(str(tmp_path / "nonexistent.csv"))
+
+    def test_renames_upstream_columns(self, tmp_path):
+        """CSV with fitzpatrick_scale/url_alphanum should be renamed."""
+        csv_path = tmp_path / "upstream.csv"
+        df = pd.DataFrame({
+            "url_alphanum": ["img_a", "img_b"],
+            "fitzpatrick_scale": [1, 3],
+            "url": ["http://a.com", "http://b.com"],
+        })
+        df.to_csv(csv_path, index=False)
+        result = load_metadata(str(csv_path))
+        assert "hasher" in result.columns
+        assert "fitzpatrick" in result.columns
+        assert "url_alphanum" not in result.columns
+        assert "fitzpatrick_scale" not in result.columns
+
+    def test_already_renamed_columns_unchanged(self, tmp_path):
+        """CSV that already has hasher/fitzpatrick should pass through."""
+        csv_path = tmp_path / "already.csv"
+        df = make_sample_df(5)
+        df.to_csv(csv_path, index=False)
+        result = load_metadata(str(csv_path))
+        assert "hasher" in result.columns
+        assert "fitzpatrick" in result.columns
 
 
 # ===================================================================

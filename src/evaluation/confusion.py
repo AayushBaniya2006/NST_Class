@@ -31,7 +31,9 @@ def plot_confusion_matrix(
     fig, ax = plt.subplots(figsize=(8, 6))
 
     if normalize:
-        cm_display = cm.astype("float") / cm.sum(axis=1, keepdims=True)
+        row_sums = cm.sum(axis=1, keepdims=True).astype("float")
+        row_sums[row_sums == 0] = 1  # avoid division by zero for empty classes
+        cm_display = cm.astype("float") / row_sums
         fmt = ".2%"
     else:
         cm_display = cm

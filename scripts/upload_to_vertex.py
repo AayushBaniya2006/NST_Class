@@ -13,7 +13,7 @@ def main():
     parser.add_argument("--project", type=str, required=True, help="GCP project ID")
     parser.add_argument("--region", type=str, default="us-central1", help="GCP region")
     parser.add_argument("--serving-container", type=str,
-                        default="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.1-13:latest",
+                        default="us-docker.pkg.dev/vertex-ai/prediction/pytorch-gpu.2-4:latest",
                         help="Serving container image URI")
     args = parser.parse_args()
 

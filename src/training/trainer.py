@@ -87,7 +87,8 @@ class Trainer:
 
         # Optimizer — initially only head parameters if backbone is frozen
         self.optimizer = self._create_optimizer()
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=config.epochs)
+        phase1_t_max = config.unfreeze_after_epochs if config.freeze_backbone else config.epochs
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=phase1_t_max)
         self.early_stopping = EarlyStopping(patience=config.early_stopping_patience)
 
         # Checkpointing
@@ -157,14 +158,8 @@ class Trainer:
 
     def _save_checkpoint(self, epoch: int, val_loss: float):
         path = self.checkpoint_dir / "best_model.pt"
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "val_loss": val_loss,
-            "config": self.config,
-        }, path)
-        logger.info(f"Saved checkpoint at epoch {epoch} (val_loss={val_loss:.4f})")
+        torch.save(self.model.state_dict(), path)
+        logger.info("Saved checkpoint at epoch %d (val_loss=%.4f)", epoch, val_loss)
 
     def train(self) -> dict:
         """Run the full two-phase training loop.
@@ -179,12 +174,18 @@ class Trainer:
         for epoch in range(self.config.epochs):
             # Phase transition: unfreeze backbone
             if epoch == self.config.unfreeze_after_epochs and self.config.freeze_backbone:
-                logger.info(f"Epoch {epoch}: Unfreezing last {self.config.unfreeze_n_blocks} blocks")
+                logger.info(
+                    "Epoch %d: Unfreezing last %d blocks",
+                    epoch, self.config.unfreeze_n_blocks,
+                )
                 self.model.unfreeze_last_blocks(n=self.config.unfreeze_n_blocks)
                 self.optimizer = self._create_optimizer()
                 self.scheduler = CosineAnnealingLR(
                     self.optimizer,
                     T_max=self.config.epochs - epoch,
+                )
+                self.early_stopping = EarlyStopping(
+                    patience=self.config.early_stopping_patience,
                 )
 
             train_metrics = self._train_one_epoch(epoch)

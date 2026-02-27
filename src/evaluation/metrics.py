@@ -54,9 +54,15 @@ def compute_all_metrics(
 
     try:
         roc_auc = roc_auc_score(y_true, y_proba, multi_class="ovr", average="macro")
-        per_class_auc = roc_auc_score(y_true, y_proba, multi_class="ovr", average=None)
+        # Per-class AUC via binary one-vs-rest (multi_class doesn't support average=None)
         for i, name in enumerate(class_names):
-            per_class[name]["roc_auc"] = float(per_class_auc[i])
+            binary_true = (y_true == i).astype(int)
+            if binary_true.sum() > 0 and binary_true.sum() < len(binary_true):
+                per_class[name]["roc_auc"] = float(
+                    roc_auc_score(binary_true, y_proba[:, i])
+                )
+            else:
+                per_class[name]["roc_auc"] = None
     except ValueError:
         roc_auc = None
 

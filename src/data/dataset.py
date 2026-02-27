@@ -34,6 +34,10 @@ class FitzpatrickDataset(Dataset):
 
     def _find_image(self, hasher: str) -> Optional[Path]:
         """Find image file by hasher name, trying common extensions."""
+        # Check bare hasher path first (handles filenames that already have extensions)
+        direct = self.image_dir / hasher
+        if direct.is_file():
+            return direct
         for ext in [".jpg", ".jpeg", ".png", ".bmp"]:
             path = self.image_dir / f"{hasher}{ext}"
             if path.exists():

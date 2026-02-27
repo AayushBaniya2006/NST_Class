@@ -172,23 +172,23 @@ def filter_human_images(
         if img_path is None:
             continue
         try:
-            img = Image.open(img_path)
-            # Check mode
-            if img.mode != "RGB":
-                logger.debug("Non-RGB image skipped: %s (mode=%s)", img_path, img.mode)
-                continue
-            # Check dimensions
-            w, h = img.size
-            if w < 50 or h < 50:
-                logger.debug("Too small image skipped: %s (%dx%d)", img_path, w, h)
-                continue
-            # Check colour variance
-            arr = np.array(img, dtype=np.float64)
-            variance = arr.std()
-            if variance <= 10:
-                logger.debug("Low variance image skipped: %s (std=%.2f)", img_path, variance)
-                continue
-            keep_indices.append(idx)
+            with Image.open(img_path) as img:
+                # Check mode
+                if img.mode != "RGB":
+                    logger.debug("Non-RGB image skipped: %s (mode=%s)", img_path, img.mode)
+                    continue
+                # Check dimensions
+                w, h = img.size
+                if w < 50 or h < 50:
+                    logger.debug("Too small image skipped: %s (%dx%d)", img_path, w, h)
+                    continue
+                # Check colour variance
+                arr = np.array(img, dtype=np.float64)
+                variance = arr.std()
+                if variance <= 10:
+                    logger.debug("Low variance image skipped: %s (std=%.2f)", img_path, variance)
+                    continue
+                keep_indices.append(idx)
         except Exception:
             logger.debug("Error processing image: %s", img_path)
     out = df.loc[keep_indices].reset_index(drop=True)
@@ -212,10 +212,11 @@ def deduplicate_images(
         hasher = row[hasher_col]
         img_path = _find_image_path(image_dir, str(hasher))
         if img_path is None:
+            logger.warning("Image missing during deduplication: %s", hasher)
             continue
         try:
-            img = Image.open(img_path)
-            phash = str(imagehash.phash(img))
+            with Image.open(img_path) as img:
+                phash = str(imagehash.phash(img))
             if phash not in seen_hashes:
                 seen_hashes[phash] = idx
                 keep_indices.append(idx)

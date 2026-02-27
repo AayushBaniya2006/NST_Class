@@ -1,8 +1,12 @@
 """Training configuration as a dataclass, loadable from YAML."""
+import dataclasses
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,8 +27,6 @@ class TrainingConfig:
     batch_size: int = 32
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
-    optimizer: str = "adam"
-    scheduler: str = "cosine"
     early_stopping_patience: int = 5
     use_class_weights: bool = True
 
@@ -54,7 +56,10 @@ class TrainingConfig:
             if isinstance(section, dict):
                 flat.update(section)
 
-        # Filter to only valid fields
-        valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+        # Filter to only valid fields and warn on unrecognized keys
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        unrecognized = set(flat.keys()) - valid_fields
+        if unrecognized:
+            logger.warning("Unrecognized config keys (ignored): %s", unrecognized)
         filtered = {k: v for k, v in flat.items() if k in valid_fields}
         return cls(**filtered)

@@ -1,5 +1,5 @@
 # Dockerfile for Vertex AI Custom Training Job
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 WORKDIR /app
 
@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ src/
 COPY scripts/ scripts/
 COPY configs/ configs/
+
+ENV PYTHONPATH=/app
 
 # Default entrypoint for Vertex AI custom training
 ENTRYPOINT ["python", "scripts/train.py"]

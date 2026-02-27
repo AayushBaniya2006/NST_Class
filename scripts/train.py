@@ -1,9 +1,11 @@
 """CLI entrypoint for training — usable locally or as Vertex AI custom job."""
 import argparse
 import logging
+import random
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -49,9 +51,18 @@ def main():
 
     config.checkpoint_dir = args.output_dir
 
+    # Reproducibility
+    seed = config.random_seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Device: {device}")
-    logger.info(f"Config: {config}")
+    use_pin_memory = device == "cuda"
+    logger.info("Device: %s", device)
+    logger.info("Config: %s", config)
 
     # Load data
     train_df = pd.read_csv(f"{args.data_dir}/train.csv")
@@ -60,8 +71,8 @@ def main():
     train_dataset = FitzpatrickDataset(train_df, args.image_dir, transform=get_train_transforms(config.image_size))
     val_dataset = FitzpatrickDataset(val_df, args.image_dir, transform=get_eval_transforms(config.image_size))
 
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers, pin_memory=use_pin_memory)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers, pin_memory=use_pin_memory)
 
     # Class weights
     class_weights = None

@@ -1,11 +1,11 @@
 # Skin Tone Classification Pipeline — Design Document
 
 **Date:** 2026-02-26
-**Status:** Approved
+**Status:** Approved (Updated: 6-class individual Fitzpatrick types)
 
 ## Summary
 
-Build a PyTorch-based ML pipeline to classify dermatology images into 3 Fitzpatrick skin tone groups (I-II, III-IV, V-VI) using the Fitzpatrick17k dataset. Train on Google Colab, deploy to Vertex AI Model Registry. Compare custom fine-tuned models against a Vertex AutoML baseline. Evaluate fairness across skin tone categories.
+Build a PyTorch-based ML pipeline to classify dermatology images into all 6 individual Fitzpatrick skin tone types (I-VI) using the Fitzpatrick17k dataset. Train on Google Colab, deploy to Vertex AI Model Registry. Compare custom fine-tuned models against a Vertex AutoML baseline. Evaluate fairness across all 6 skin tone types.
 
 ## Decisions
 
@@ -16,7 +16,7 @@ Build a PyTorch-based ML pipeline to classify dermatology images into 3 Fitzpatr
 | Training env | Colab → Vertex AI | Fast iteration in Colab, production artifacts in Vertex |
 | Experiment tracking | Weights & Biases | Best-in-class, free for students |
 | Architecture | Modular Python package + notebooks | Reusable, testable, Vertex-compatible |
-| Label strategy | 3-class grouped (12, 34, 56) | Stable distribution, cleaner fairness comparison |
+| Label strategy | 6-class individual (Fitz I-VI) | Full granularity, per-type fairness analysis |
 | Augmentation | Standard only (flips, rotation, brightness) | No synthetic generation |
 | Baseline | Vertex AutoML Image Classification | Zero-effort comparison point |
 
@@ -31,7 +31,7 @@ skin_tone_classifier/
 │   │   └── prepare.py         # Download, clean, encode labels, split
 │   ├── models/
 │   │   ├── backbone.py        # EfficientNetV2-S and ResNet50 wrappers
-│   │   └── classifier.py      # 3-class classification head
+│   │   └── classifier.py      # 6-class classification head
 │   ├── training/
 │   │   ├── trainer.py         # Training loop with class weighting
 │   │   └── config.py          # Hyperparameter dataclass
@@ -81,7 +81,7 @@ Two backbones trained for comparison:
 |---|---|---|
 | Pretrained on | ImageNet | ImageNet |
 | Input size | 224x224 | 224x224 |
-| Classifier head | FC → 3 classes | FC → 3 classes |
+| Classifier head | FC → 6 classes | FC → 6 classes |
 | Loss | CrossEntropy + class weights | CrossEntropy + class weights |
 | Optimizer | Adam, lr=1e-4 | Adam, lr=1e-4 |
 | Scheduler | CosineAnnealing | CosineAnnealing |
@@ -109,9 +109,9 @@ Metrics computed for all 3 models (EfficientNetV2, ResNet50, AutoML):
 |---|---|
 | Accuracy | Overall |
 | Macro F1 | Overall |
-| Precision | Per-class (12, 34, 56) |
-| Recall | Per-class (12, 34, 56) |
-| Confusion Matrix | 3x3 |
+| Precision | Per-class (Fitz I-VI) |
+| Recall | Per-class (Fitz I-VI) |
+| Confusion Matrix | 6x6 |
 | Fairness Gap | max(recall) - min(recall) |
 | ROC-AUC | Per-class (one-vs-rest) |
 

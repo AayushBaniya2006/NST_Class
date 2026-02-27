@@ -64,13 +64,26 @@ def download_file_from_gcs(bucket_name: str, blob_name: str, local_path: str) ->
     return local_path
 
 
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
+
+
+def _find_image_extension(image_dir: str, hasher: str) -> str:
+    """Find the actual file extension for a hasher in image_dir."""
+    base = Path(image_dir)
+    for ext in _IMAGE_EXTENSIONS:
+        if (base / f"{hasher}{ext}").is_file():
+            return ext
+    return ".jpg"
+
+
 def generate_automl_csv(
     df,
     image_gcs_prefix: str,
     split_column: str = "split",
-    label_column: str = "fitzpatrick",
+    label_column: str = "skin_tone_label",
     hasher_column: str = "hasher",
     output_path: str = "automl_manifest.csv",
+    image_dir: str = None,
 ) -> str:
     """Generate a CSV manifest for Vertex AI AutoML Image Classification.
 
@@ -83,6 +96,8 @@ def generate_automl_csv(
         label_column: Column with the class label.
         hasher_column: Column with the image filename (without extension).
         output_path: Where to save the manifest CSV.
+        image_dir: Local image directory to detect file extensions.
+            If None, defaults to .jpg.
 
     Returns:
         Path to the saved manifest.
@@ -92,12 +107,14 @@ def generate_automl_csv(
     rows = []
     for _, row in df.iterrows():
         ml_use = split_map.get(row[split_column], "TRAINING")
-        gcs_path = f"{image_gcs_prefix}/{row[hasher_column]}.jpg"
+        hasher = str(row[hasher_column])
+        ext = _find_image_extension(image_dir, hasher) if image_dir else ".jpg"
+        gcs_path = f"{image_gcs_prefix}/{hasher}{ext}"
         label = str(row[label_column])
         rows.append(f"{ml_use},{gcs_path},{label}")
 
     with open(output_path, "w") as f:
         f.write("\n".join(rows))
 
-    logger.info(f"Generated AutoML manifest with {len(rows)} rows at {output_path}")
+    logger.info("Generated AutoML manifest with %d rows at %s", len(rows), output_path)
     return output_path
