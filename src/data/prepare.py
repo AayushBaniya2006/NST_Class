@@ -68,14 +68,25 @@ def _find_image_path(image_dir: str, hasher: str) -> str | None:
 # 1. load_metadata
 # ---------------------------------------------------------------------------
 
+_COLUMN_RENAMES: dict[str, str] = {
+    "fitzpatrick_scale": "fitzpatrick",
+    "url_alphanum": "hasher",
+}
+
+
 def load_metadata(csv_path: str) -> pd.DataFrame:
     """Load a Fitzpatrick17k CSV and return as a DataFrame.
+
+    Automatically renames upstream column names (``fitzpatrick_scale`` →
+    ``fitzpatrick``, ``url_alphanum`` → ``hasher``) so the rest of the
+    pipeline can use consistent names.
 
     Raises ``FileNotFoundError`` if *csv_path* does not exist.
     """
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(f"CSV not found: {csv_path}")
     df = pd.read_csv(csv_path)
+    df = df.rename(columns={k: v for k, v in _COLUMN_RENAMES.items() if k in df.columns})
     logger.info("Loaded %d rows, columns: %s", len(df), list(df.columns))
     return df
 
