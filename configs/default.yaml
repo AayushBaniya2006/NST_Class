@@ -1,0 +1,56 @@
+# Skin Tone Classifier Configuration
+
+data:
+  dataset_name: "fitzpatrick17k"
+  csv_path: "data/fitzpatrick17k.csv"
+  image_dir: "data/images"
+  cleaned_csv_path: "data/fitzpatrick17k_cleaned.csv"
+  image_size: 224
+  num_classes: 3
+  label_column: "fitzpatrick"
+  # Grouped labels: 12 = Fitz I-II, 34 = Fitz III-IV, 56 = Fitz V-VI
+  class_names: ["12", "34", "56"]
+  split_ratios:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  random_seed: 42
+
+training:
+  backbone: "efficientnet_v2_s"  # or "resnet50"
+  pretrained: true
+  freeze_backbone: true
+  unfreeze_after_epochs: 5
+  unfreeze_layers: "last_2_blocks"
+  epochs: 20
+  batch_size: 32
+  num_workers: 4
+  optimizer: "adam"
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  scheduler: "cosine"
+  early_stopping_patience: 5
+  use_class_weights: true
+
+augmentation:
+  horizontal_flip: true
+  rotation_degrees: 15
+  brightness: 0.2
+  contrast: 0.2
+  saturation: 0.2
+  hue: 0.1
+
+logging:
+  wandb_project: "skin-tone-classifier"
+  wandb_entity: null  # set to your W&B username
+  log_every_n_steps: 10
+  save_checkpoints: true
+  checkpoint_dir: "checkpoints"
+
+gcs:
+  bucket_name: "skin-tone-project"
+  project_id: null  # set to your GCP project ID
+  region: "us-central1"
+
+evaluation:
+  fairness_gap_threshold: 0.15
