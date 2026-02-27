@@ -68,7 +68,7 @@ def generate_automl_csv(
     df,
     image_gcs_prefix: str,
     split_column: str = "split",
-    label_column: str = "skin_tone_group",
+    label_column: str = "fitzpatrick",
     hasher_column: str = "hasher",
     output_path: str = "automl_manifest.csv",
 ) -> str:

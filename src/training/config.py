@@ -9,7 +9,7 @@ import yaml
 class TrainingConfig:
     # Model
     backbone: str = "efficientnet_v2_s"
-    num_classes: int = 3
+    num_classes: int = 6
     pretrained: bool = True
     dropout: float = 0.3
 
@@ -31,7 +31,7 @@ class TrainingConfig:
     # Data
     image_size: int = 224
     num_workers: int = 4
-    class_names: list = field(default_factory=lambda: ["12", "34", "56"])
+    class_names: list = field(default_factory=lambda: ["1", "2", "3", "4", "5", "6"])
 
     # Logging
     wandb_project: str = "skin-tone-classifier"

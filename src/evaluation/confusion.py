@@ -26,7 +26,7 @@ def plot_confusion_matrix(
         Matplotlib Figure.
     """
     if class_names is None:
-        class_names = ["Fitz I-II", "Fitz III-IV", "Fitz V-VI"]
+        class_names = ["Fitz I", "Fitz II", "Fitz III", "Fitz IV", "Fitz V", "Fitz VI"]
 
     fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -86,11 +86,11 @@ def plot_fairness_comparison(
         gap = fairness_results[model]["gap"]
         ax.bar(x + i * width, values, width, label=f"{model} (gap={gap:.2%})")
 
-    ax.set_xlabel("Skin Tone Group")
+    ax.set_xlabel("Fitzpatrick Type")
     ax.set_ylabel(metric.capitalize())
     ax.set_title(f"Per-Class {metric.capitalize()} by Model — Fairness Comparison")
     ax.set_xticks(x + width * (len(model_names) - 1) / 2)
-    ax.set_xticklabels(["Fitz I-II", "Fitz III-IV", "Fitz V-VI"])
+    ax.set_xticklabels(class_names)
     ax.legend()
     ax.set_ylim(0, 1.0)
     ax.axhline(y=0.85, color="red", linestyle="--", alpha=0.3, label="Target")

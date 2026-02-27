@@ -28,7 +28,7 @@ def compute_all_metrics(
         Dict with accuracy, macro_f1, per_class metrics, confusion_matrix, roc_auc.
     """
     if class_names is None:
-        class_names = ["12", "34", "56"]
+        class_names = ["1", "2", "3", "4", "5", "6"]
 
     num_classes = len(class_names)
     y_true = np.array(y_true)

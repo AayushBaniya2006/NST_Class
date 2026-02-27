@@ -17,11 +17,11 @@ def sample_data(tmp_path):
     for i in range(10):
         img = Image.fromarray(np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8))
         img.save(image_dir / f"img_{i}.jpg")
+        fitz = (i % 6) + 1
         rows.append({
             "hasher": f"img_{i}",
-            "fitzpatrick": (i % 6) + 1,
-            "skin_tone_group": ["12", "12", "34", "34", "56", "56"][i % 6],
-            "skin_tone_label": [0, 0, 1, 1, 2, 2][i % 6],
+            "fitzpatrick": fitz,
+            "skin_tone_label": fitz - 1,
             "label": "acne",
         })
 
@@ -41,7 +41,7 @@ class TestFitzpatrickDataset:
         image, label = dataset[0]
         assert image is not None
         assert isinstance(label, int)
-        assert label in [0, 1, 2]
+        assert label in [0, 1, 2, 3, 4, 5]
 
     def test_with_transforms(self, sample_data):
         from src.data.transforms import get_eval_transforms

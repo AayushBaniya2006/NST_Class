@@ -5,15 +5,15 @@ from src.training.trainer import compute_class_weights, EarlyStopping
 
 class TestComputeClassWeights:
     def test_balanced_classes(self):
-        labels = [0] * 100 + [1] * 100 + [2] * 100
-        weights = compute_class_weights(labels, num_classes=3)
-        assert len(weights) == 3
+        labels = [0] * 100 + [1] * 100 + [2] * 100 + [3] * 100 + [4] * 100 + [5] * 100
+        weights = compute_class_weights(labels, num_classes=6)
+        assert len(weights) == 6
         assert abs(weights[0] - weights[1]) < 0.1
 
     def test_imbalanced_classes(self):
-        labels = [0] * 500 + [1] * 100 + [2] * 50
-        weights = compute_class_weights(labels, num_classes=3)
-        assert weights[2] > weights[1] > weights[0]
+        labels = [0] * 500 + [1] * 200 + [2] * 100 + [3] * 80 + [4] * 50 + [5] * 30
+        weights = compute_class_weights(labels, num_classes=6)
+        assert weights[5] > weights[4] > weights[3] > weights[0]
 
 
 class TestEarlyStopping:

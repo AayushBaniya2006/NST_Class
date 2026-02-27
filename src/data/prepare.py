@@ -1,6 +1,6 @@
 """Data preparation pipeline for the Fitzpatrick17k dataset.
 
-Handles metadata loading, label validation, grouped-label encoding,
+Handles metadata loading, label validation, label encoding,
 image validation / filtering / deduplication, class-distribution
 computation, stratified splitting, and image downloading.
 """
@@ -28,19 +28,15 @@ logger = logging.getLogger(__name__)
 
 VALID_FITZPATRICK: set[int] = {1, 2, 3, 4, 5, 6}
 
-GROUP_MAP: dict[int, str] = {
-    1: "12",
-    2: "12",
-    3: "34",
-    4: "34",
-    5: "56",
-    6: "56",
-}
+NUM_CLASSES: int = 6
 
-GROUP_TO_LABEL: dict[str, int] = {
-    "12": 0,
-    "34": 1,
-    "56": 2,
+FITZPATRICK_TO_LABEL: dict[int, int] = {
+    1: 0,
+    2: 1,
+    3: 2,
+    4: 3,
+    5: 4,
+    6: 5,
 }
 
 # Image extensions to try when locating a file on disk.
@@ -104,16 +100,16 @@ def validate_fitzpatrick_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# 3. encode_grouped_labels
+# 3. encode_labels
 # ---------------------------------------------------------------------------
 
-def encode_grouped_labels(df: pd.DataFrame) -> pd.DataFrame:
-    """Add ``skin_tone_group`` ('12'/'34'/'56') and ``skin_tone_label``
-    (0/1/2) columns derived from the ``fitzpatrick`` column.
+def encode_labels(df: pd.DataFrame) -> pd.DataFrame:
+    """Add ``skin_tone_label`` (0-5) column derived from ``fitzpatrick`` (1-6).
+
+    Mapping: fitzpatrick 1 → label 0, 2 → 1, ..., 6 → 5.
     """
     out = df.copy()
-    out["skin_tone_group"] = out["fitzpatrick"].map(GROUP_MAP)
-    out["skin_tone_label"] = out["skin_tone_group"].map(GROUP_TO_LABEL)
+    out["skin_tone_label"] = out["fitzpatrick"].map(FITZPATRICK_TO_LABEL)
     return out
 
 
@@ -362,7 +358,7 @@ def run_full_pipeline(
     Steps:
       1. Load metadata
       2. Validate fitzpatrick labels
-      3. Encode grouped labels
+      3. Encode labels
       4. Validate images on disk
       5. Filter non-human images
       6. Deduplicate images
@@ -383,8 +379,8 @@ def run_full_pipeline(
     df_valid = validate_fitzpatrick_labels(df)
     dropped_reasons["invalid_fitzpatrick"] = original_count - len(df_valid)
 
-    # 3. Encode grouped labels
-    df_encoded = encode_grouped_labels(df_valid)
+    # 3. Encode labels
+    df_encoded = encode_labels(df_valid)
 
     # 4. Validate images
     count_before = len(df_encoded)

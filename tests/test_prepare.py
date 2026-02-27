@@ -11,11 +11,11 @@ from PIL import Image
 
 from src.data.prepare import (
     VALID_FITZPATRICK,
-    GROUP_MAP,
-    GROUP_TO_LABEL,
+    NUM_CLASSES,
+    FITZPATRICK_TO_LABEL,
     load_metadata,
     validate_fitzpatrick_labels,
-    encode_grouped_labels,
+    encode_labels,
     validate_images,
     filter_human_images,
     deduplicate_images,
@@ -84,59 +84,54 @@ class TestConstants:
     def test_valid_fitzpatrick(self):
         assert VALID_FITZPATRICK == {1, 2, 3, 4, 5, 6}
 
-    def test_group_map_keys(self):
-        assert set(GROUP_MAP.keys()) == {1, 2, 3, 4, 5, 6}
+    def test_num_classes(self):
+        assert NUM_CLASSES == 6
 
-    def test_group_to_label_values(self):
-        assert set(GROUP_TO_LABEL.values()) == {0, 1, 2}
+    def test_fitzpatrick_to_label_keys(self):
+        assert set(FITZPATRICK_TO_LABEL.keys()) == {1, 2, 3, 4, 5, 6}
+
+    def test_fitzpatrick_to_label_values(self):
+        assert set(FITZPATRICK_TO_LABEL.values()) == {0, 1, 2, 3, 4, 5}
 
 
 # ===================================================================
 # Test: encode_grouped_labels
 # ===================================================================
 
-class TestEncodeGroupedLabels:
-    """Verify that encode_grouped_labels adds skin_tone_group and
-    skin_tone_label columns with the correct mapping."""
+class TestEncodeLabels:
+    """Verify that encode_labels adds skin_tone_label with correct mapping."""
 
-    def test_maps_1_2_to_group_12(self):
-        df = pd.DataFrame({"fitzpatrick": [1, 2]})
-        result = encode_grouped_labels(df)
-        assert list(result["skin_tone_group"]) == ["12", "12"]
+    def test_maps_fitzpatrick_1_to_label_0(self):
+        df = pd.DataFrame({"fitzpatrick": [1]})
+        result = encode_labels(df)
+        assert list(result["skin_tone_label"]) == [0]
 
-    def test_maps_3_4_to_group_34(self):
-        df = pd.DataFrame({"fitzpatrick": [3, 4]})
-        result = encode_grouped_labels(df)
-        assert list(result["skin_tone_group"]) == ["34", "34"]
-
-    def test_maps_5_6_to_group_56(self):
-        df = pd.DataFrame({"fitzpatrick": [5, 6]})
-        result = encode_grouped_labels(df)
-        assert list(result["skin_tone_group"]) == ["56", "56"]
-
-    def test_adds_numeric_label_column(self):
-        df = pd.DataFrame({"fitzpatrick": [1, 3, 5]})
-        result = encode_grouped_labels(df)
-        assert list(result["skin_tone_label"]) == [0, 1, 2]
+    def test_maps_fitzpatrick_6_to_label_5(self):
+        df = pd.DataFrame({"fitzpatrick": [6]})
+        result = encode_labels(df)
+        assert list(result["skin_tone_label"]) == [5]
 
     def test_all_six_types(self):
         df = pd.DataFrame({"fitzpatrick": [1, 2, 3, 4, 5, 6]})
-        result = encode_grouped_labels(df)
-        expected_groups = ["12", "12", "34", "34", "56", "56"]
-        expected_labels = [0, 0, 1, 1, 2, 2]
-        assert list(result["skin_tone_group"]) == expected_groups
+        result = encode_labels(df)
+        expected_labels = [0, 1, 2, 3, 4, 5]
         assert list(result["skin_tone_label"]) == expected_labels
 
     def test_preserves_existing_columns(self):
         df = pd.DataFrame({"fitzpatrick": [1], "other_col": ["x"]})
-        result = encode_grouped_labels(df)
+        result = encode_labels(df)
         assert "other_col" in result.columns
 
     def test_does_not_modify_input(self):
         df = pd.DataFrame({"fitzpatrick": [1, 2, 3]})
         original_cols = set(df.columns)
-        _ = encode_grouped_labels(df)
+        _ = encode_labels(df)
         assert set(df.columns) == original_cols
+
+    def test_no_skin_tone_group_column(self):
+        df = pd.DataFrame({"fitzpatrick": [1, 2, 3]})
+        result = encode_labels(df)
+        assert "skin_tone_group" not in result.columns
 
 
 # ===================================================================
@@ -241,7 +236,7 @@ class TestStratifiedSplit:
 
     def test_default_ratios(self):
         df = make_sample_df(300)
-        df = encode_grouped_labels(df)
+        df = encode_labels(df)
         train, val, test = stratified_split(df, "skin_tone_label")
         total = len(train) + len(val) + len(test)
         assert total == 300
@@ -252,7 +247,7 @@ class TestStratifiedSplit:
 
     def test_custom_ratios(self):
         df = make_sample_df(200)
-        df = encode_grouped_labels(df)
+        df = encode_labels(df)
         train, val, test = stratified_split(
             df, "skin_tone_label", ratios=(0.6, 0.2, 0.2)
         )
@@ -262,7 +257,7 @@ class TestStratifiedSplit:
 
     def test_no_overlap(self):
         df = make_sample_df(200)
-        df = encode_grouped_labels(df)
+        df = encode_labels(df)
         train, val, test = stratified_split(df, "skin_tone_label")
         train_idx = set(train.index)
         val_idx = set(val.index)
@@ -274,7 +269,7 @@ class TestStratifiedSplit:
     def test_stratification_preserves_distribution(self):
         """Each split should have roughly the same class proportions."""
         df = make_sample_df(600)
-        df = encode_grouped_labels(df)
+        df = encode_labels(df)
         train, val, test = stratified_split(df, "skin_tone_label")
         for label in df["skin_tone_label"].unique():
             full_ratio = (df["skin_tone_label"] == label).mean()
@@ -287,7 +282,7 @@ class TestStratifiedSplit:
 
     def test_reproducibility(self):
         df = make_sample_df(200)
-        df = encode_grouped_labels(df)
+        df = encode_labels(df)
         t1, v1, te1 = stratified_split(df, "skin_tone_label", seed=99)
         t2, v2, te2 = stratified_split(df, "skin_tone_label", seed=99)
         pd.testing.assert_frame_equal(t1.reset_index(drop=True), t2.reset_index(drop=True))

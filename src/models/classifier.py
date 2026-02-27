@@ -9,7 +9,7 @@ class SkinToneClassifier(nn.Module):
 
     Args:
         backbone_name: Name of the backbone ('resnet50' or 'efficientnet_v2_s').
-        num_classes: Number of output classes (default 3 for grouped Fitzpatrick).
+        num_classes: Number of output classes (default 6 for Fitzpatrick I-VI).
         pretrained: Whether to load ImageNet pretrained weights.
         dropout: Dropout probability before the final FC layer.
     """
@@ -17,7 +17,7 @@ class SkinToneClassifier(nn.Module):
     def __init__(
         self,
         backbone_name: str,
-        num_classes: int = 3,
+        num_classes: int = 6,
         pretrained: bool = True,
         dropout: float = 0.3,
     ):
