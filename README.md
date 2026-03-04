@@ -65,10 +65,10 @@ Fitzpatrick17k ──> Data Cleaning ──> Colab Training ──> Evaluation �
 
 | Step | Notebook | What Happens |
 |------|----------|-------------|
-| 1 | `01_data_exploration.ipynb` | Load Fitzpatrick17k, clean data, validate images, filter non-human images, deduplicate, encode labels, stratified split |
-| 2 | `04_automl_baseline.ipynb` | Upload images to GCS, train Vertex AI AutoML model as zero-effort baseline |
-| 3 | `02_training.ipynb` | Train EfficientNetV2-S and ResNet50 with two-phase transfer learning |
-| 4 | `03_evaluation.ipynb` | Evaluate all 3 models, compute per-class metrics, fairness gap analysis, cross-model comparison |
+| 1 | `01_data_exploration.ipynb` | Load Fitzpatrick17k, download images, clean data, validate images, filter non-human images, deduplicate, encode labels, stratified split |
+| 2 | `02_training.ipynb` | Train EfficientNetV2-S and ResNet50 with two-phase transfer learning |
+| 3 | `03_evaluation.ipynb` | Evaluate all models, compute per-class metrics, fairness gap analysis, cross-model comparison |
+| 4 | `04_automl_baseline.ipynb` | Upload images to GCS, train Vertex AI AutoML model as zero-effort baseline |
 
 ---
 
@@ -82,16 +82,18 @@ Fitzpatrick17k ──> Data Cleaning ──> Colab Training ──> Evaluation �
 - **Labels:** Fitzpatrick skin types I-VI, disease condition labels, partition labels
 - **Format:** CSV metadata with image URLs; images downloaded separately
 
-**CSV Columns Used:**
+**CSV Columns (upstream):**
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `hasher` | string | Unique image identifier (filename) |
-| `url` | string | Source URL for image download |
-| `fitzpatrick` | int (1-6) | Fitzpatrick skin type label |
-| `label` | string | Dermatological condition name |
-| `three_partition_label` | string | High-level condition category |
-| `md5hash` | string | Image content hash |
+The raw CSV from the Fitzpatrick17k repository uses column names that differ from what the pipeline expects. The `load_metadata()` function auto-renames them:
+
+| Upstream Column | Renamed To | Type | Description |
+|----------------|-----------|------|-------------|
+| `url_alphanum` | `hasher` | string | Unique image identifier (filename) |
+| `fitzpatrick_scale` | `fitzpatrick` | int (1-6) | Fitzpatrick skin type label |
+| `url` | `url` | string | Source URL for image download |
+| `label` | `label` | string | Dermatological condition name |
+| `three_partition_label` | `three_partition_label` | string | High-level condition category |
+| `md5hash` | `md5hash` | string | Image content hash |
 
 ### Data Cleaning Pipeline
 
@@ -149,16 +151,16 @@ Two pretrained CNN backbones fine-tuned via transfer learning:
 
 #### EfficientNetV2-S (Primary)
 
-- **Pretrained on:** ImageNet-1K (IMAGENET1K_V1 weights)
+- **Pretrained on:** ImageNet-1K (`EfficientNet_V2_S_Weights.IMAGENET1K_V1`)
 - **Feature dimension:** 1,280
-- **Classification head:** Dropout(0.3) -> Linear(1280, 6)
+- **Classification head:** `Dropout(0.3) -> Linear(1280, 6)`
 - **Why:** Best accuracy-to-compute ratio among modern CNNs. Compound scaling (depth + width + resolution) produces strong features for fine-grained classification.
 
 #### ResNet50 (Comparison Baseline)
 
-- **Pretrained on:** ImageNet-1K (IMAGENET1K_V2 weights)
+- **Pretrained on:** ImageNet-1K (`ResNet50_Weights.IMAGENET1K_V2`)
 - **Feature dimension:** 2,048
-- **Classification head:** Dropout(0.3) -> Linear(2048, 6)
+- **Classification head:** `Dropout(0.3) -> Linear(2048, 6)`
 - **Why:** Most widely studied backbone in transfer learning research. Strong, stable baseline with well-understood behavior.
 
 ### AutoML Baseline
@@ -183,20 +185,22 @@ Training proceeds in two distinct phases:
 **Phase 2 — Fine-Tuning (Epochs 6-20)**
 - Last 2 blocks of the backbone are **unfrozen**
 - All trainable parameters updated with lower learning rate
-- Optimizer and scheduler are re-initialized for the new parameter set
+- Optimizer, scheduler, and early stopping are re-initialized for the new parameter set
 - Allows the backbone to adapt its high-level features to dermatology images
 
 ### Training Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| Loss Function | CrossEntropyLoss with inverse-frequency class weights |
-| Optimizer | Adam (lr=1e-4, weight_decay=1e-4) |
-| Scheduler | CosineAnnealingLR |
+| Loss Function | `CrossEntropyLoss` with inverse-frequency class weights |
+| Optimizer | `Adam` (lr=1e-4, weight_decay=1e-4) |
+| Scheduler | `CosineAnnealingLR` (T_max=phase length) |
 | Batch Size | 32 |
 | Epochs | 20 (max) |
 | Early Stopping | Patience=5 on validation loss |
 | Input Size | 224x224 |
+| Dropout | 0.3 |
+| Random Seed | 42 |
 
 ### Class Weighting
 
@@ -220,7 +224,7 @@ Minority classes (typically Fitz V and VI) receive higher loss weight, forcing t
 | Color Jitter: Hue | +/- 0.1 |
 | Normalization | ImageNet mean/std |
 
-Validation and test sets receive only resize + normalization (no augmentation).
+Validation and test sets receive only resize + center crop + normalization (no augmentation).
 
 ---
 
@@ -234,7 +238,8 @@ All metrics are computed on the held-out **test set** for each model:
 |--------|-------|---------|
 | Accuracy | Overall | General correctness |
 | Macro F1 | Overall | Balanced performance across classes |
-| ROC-AUC | Overall + per-class (OVR) | Discrimination ability |
+| ROC-AUC | Overall (macro, OVR) | Discrimination ability |
+| ROC-AUC | Per-class (binary OVR) | Per-type discrimination |
 | Precision | Per-class (Fitz I-VI) | False positive rate per type |
 | Recall | Per-class (Fitz I-VI) | False negative rate per type |
 | F1 | Per-class (Fitz I-VI) | Harmonic mean per type |
@@ -253,18 +258,7 @@ Fairness Gap = max(recall across classes) - min(recall across classes)
 - Gap 5-15% — Moderate: some disparity, may warrant investigation
 - Gap > 15% — **Significant**: the model performs meaningfully worse on at least one skin tone type
 
-**Example output:**
-
-| Fitzpatrick Type | Recall |
-|-----------------|--------|
-| I | 0.85 |
-| II | 0.82 |
-| III | 0.80 |
-| IV | 0.76 |
-| V | 0.60 |
-| VI | 0.50 |
-
-Gap = 0.85 - 0.50 = **0.35 (35%)** — Significant fairness issue.
+Default significance threshold: **0.15** (configurable in `configs/default.yaml`).
 
 ### Cross-Model Comparison
 
@@ -283,10 +277,10 @@ Key question answered: **"Did custom training reduce the fairness gap vs AutoML?
 ## Project Structure
 
 ```
-skin_tone_classifier/
+NST_Class/
 ├── src/                           # Core Python package
 │   ├── data/
-│   │   ├── prepare.py             # Data cleaning pipeline (11 functions)
+│   │   ├── prepare.py             # Data cleaning pipeline (12 functions)
 │   │   ├── dataset.py             # FitzpatrickDataset (PyTorch Dataset)
 │   │   └── transforms.py          # Train/eval augmentation pipelines
 │   ├── models/
@@ -310,8 +304,8 @@ skin_tone_classifier/
 ├── scripts/
 │   ├── train.py                   # CLI entrypoint (local or Vertex AI)
 │   └── upload_to_vertex.py        # Upload model to Vertex AI Model Registry
-├── tests/                         # 69 tests (unit + integration)
-│   ├── test_prepare.py            # 43 tests for data pipeline
+├── tests/                         # 71 tests (unit + integration)
+│   ├── test_prepare.py            # 45 tests for data pipeline
 │   ├── test_backbone.py           # 5 tests for backbone loading & forward pass
 │   ├── test_classifier.py         # 4 tests for classifier freeze/unfreeze
 │   ├── test_dataset.py            # 4 tests for dataset loading
@@ -322,6 +316,8 @@ skin_tone_classifier/
 ├── configs/
 │   └── default.yaml               # Full experiment configuration
 ├── Dockerfile                     # Vertex AI custom training container
+├── .dockerignore                  # Docker build exclusions
+├── pyproject.toml                 # Python project metadata & pytest config
 ├── requirements.txt               # Python dependencies
 └── docs/plans/                    # Design & implementation documents
 ```
@@ -333,15 +329,25 @@ skin_tone_classifier/
 ### Prerequisites
 
 - Python 3.10+
-- Google Cloud account with Vertex AI enabled
-- Weights & Biases account (free for students)
+- Google Cloud account with Vertex AI enabled (for notebooks 04 and deployment)
+- Weights & Biases account (free for students, for experiment tracking)
+
+### Google Colab (Recommended)
+
+All notebooks are **fully self-contained**. The first cell of each notebook automatically:
+1. Clones the repo from GitHub
+2. Installs all dependencies
+3. Downloads the Fitzpatrick17k CSV (notebook 01)
+4. Sets up `sys.path`
+
+Just open any notebook in Colab and run all cells.
 
 ### Local Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/skin-tone-classifier.git
-cd skin-tone-classifier
+git clone https://github.com/AayushBaniya2006/NST_Class.git
+cd NST_Class
 
 # Create virtual environment
 python3 -m venv .venv
@@ -354,49 +360,22 @@ pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
 
-### Google Colab Setup
-
-```python
-# In the first cell of any notebook:
-!git clone https://github.com/YOUR_USERNAME/skin-tone-classifier.git
-%cd skin-tone-classifier
-!pip install -q -r requirements.txt
-```
-
 ---
 
 ## Usage Guide
 
-### Step 1: Obtain the Dataset
-
-```bash
-# Download fitzpatrick17k.csv from the official repository
-# Place it at: data/fitzpatrick17k.csv
-
-# Option A: Download images via the notebook (slow, uses URLs from CSV)
-# Option B: Request bulk download from the dataset authors
-# Place images at: data/images/
-```
-
-### Step 2: Data Exploration & Cleaning
+### Step 1: Data Exploration & Cleaning
 
 Open `notebooks/01_data_exploration.ipynb` in Colab and run all cells. This will:
-- Load and inspect the raw CSV
+- Download the Fitzpatrick17k CSV from GitHub
+- Download images from source URLs (~30-60 min, some URLs may be dead)
 - Run the 5-step cleaning pipeline
+- Encode 6-class Fitzpatrick labels
 - Display class distribution histograms
-- Perform stratified train/val/test split
+- Perform stratified train/val/test split (70/15/15)
 - Save cleaned CSVs to `data/cleaned/`
 
-### Step 3: AutoML Baseline (Optional)
-
-Open `notebooks/04_automl_baseline.ipynb`. Fill in your GCP project ID and bucket name:
-```python
-PROJECT_ID = "your-gcp-project-id"
-BUCKET_NAME = "your-gcs-bucket"
-```
-Run all cells to train the Vertex AI AutoML baseline.
-
-### Step 4: Custom Model Training
+### Step 2: Custom Model Training
 
 Open `notebooks/02_training.ipynb`:
 1. Ensure runtime is set to **GPU** (Runtime -> Change runtime type -> T4)
@@ -404,13 +383,22 @@ Open `notebooks/02_training.ipynb`:
 3. Change `backbone="resnet50"` and re-run to train ResNet50
 4. Monitor training at [wandb.ai](https://wandb.ai)
 
-### Step 5: Evaluation & Fairness
+### Step 3: Evaluation & Fairness
 
 Open `notebooks/03_evaluation.ipynb` and run all cells to:
 - Load trained models and run inference on test set
 - Compute all metrics and confusion matrices
 - Perform fairness gap analysis
 - Generate cross-model comparison chart
+
+### Step 4: AutoML Baseline (Optional)
+
+Open `notebooks/04_automl_baseline.ipynb`. Fill in your GCP project ID and bucket name:
+```python
+PROJECT_ID = "your-gcp-project-id"
+BUCKET_NAME = "your-gcs-bucket"
+```
+Run all cells to train the Vertex AI AutoML baseline.
 
 ### Alternative: CLI Training
 
@@ -421,9 +409,23 @@ python scripts/train.py --config configs/default.yaml --no-wandb
 # Train with overrides
 python scripts/train.py --backbone resnet50 --epochs 10 --lr 0.001 --batch-size 16
 
-# Train for Vertex AI (with W&B)
-python scripts/train.py --config configs/default.yaml --backbone efficientnet_v2_s
+# Specify data and output directories
+python scripts/train.py --data-dir data/cleaned --image-dir data/images --output-dir checkpoints
 ```
+
+**CLI Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--config` | `configs/default.yaml` | Path to config YAML |
+| `--backbone` | (from config) | Override backbone name |
+| `--epochs` | (from config) | Override epochs |
+| `--batch-size` | (from config) | Override batch size |
+| `--lr` | (from config) | Override learning rate |
+| `--data-dir` | `data/cleaned` | Directory with train/val CSVs |
+| `--image-dir` | `data/images` | Directory with images |
+| `--output-dir` | `checkpoints` | Where to save model |
+| `--no-wandb` | `false` | Disable W&B logging |
 
 ---
 
@@ -435,7 +437,7 @@ python scripts/train.py --config configs/default.yaml --backbone efficientnet_v2
 gs://skin-tone-project/
 ├── images/              # All dermatology images
 ├── automl/
-│   └── manifest.csv     # AutoML training manifest
+│   └── manifest.csv     # AutoML training manifest (ML_USE,GCS_PATH,LABEL)
 └── models/
     └── efficientnet_v2_s/  # Model artifacts
 ```
@@ -444,10 +446,11 @@ gs://skin-tone-project/
 
 ```bash
 # Build and push Docker container
+# Base image: pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 docker build -t gcr.io/YOUR_PROJECT/skin-tone-trainer .
 docker push gcr.io/YOUR_PROJECT/skin-tone-trainer
 
-# Submit training job (from GCP console or gcloud CLI)
+# Submit training job
 gcloud ai custom-jobs create \
   --region=us-central1 \
   --display-name=skin-tone-training \
@@ -474,34 +477,52 @@ All training parameters are defined in `configs/default.yaml`:
 | data | image_size | 224 | Input image resolution |
 | data | num_classes | 6 | Number of output classes |
 | data | split_ratios | 70/15/15 | Train/val/test split |
-| training | backbone | efficientnet_v2_s | Model backbone |
-| training | learning_rate | 0.0001 | Initial learning rate |
-| training | batch_size | 32 | Training batch size |
-| training | epochs | 20 | Maximum training epochs |
+| data | random_seed | 42 | Random seed for reproducibility |
+| training | backbone | `efficientnet_v2_s` | Model backbone (`efficientnet_v2_s` or `resnet50`) |
+| training | pretrained | true | Use ImageNet pretrained weights |
 | training | freeze_backbone | true | Freeze backbone in phase 1 |
 | training | unfreeze_after_epochs | 5 | When to start fine-tuning |
+| training | unfreeze_n_blocks | 2 | Number of backbone blocks to unfreeze |
+| training | learning_rate | 0.0001 | Adam learning rate |
+| training | weight_decay | 0.0001 | Adam weight decay |
+| training | batch_size | 32 | Training batch size |
+| training | epochs | 20 | Maximum training epochs |
 | training | early_stopping_patience | 5 | Epochs without improvement before stopping |
 | training | use_class_weights | true | Enable inverse-frequency weighting |
+| training | num_workers | 4 | DataLoader workers |
+| augmentation | horizontal_flip | true | Random horizontal flip |
 | augmentation | rotation_degrees | 15 | Random rotation range |
 | augmentation | brightness | 0.2 | Color jitter brightness |
+| augmentation | contrast | 0.2 | Color jitter contrast |
+| augmentation | saturation | 0.2 | Color jitter saturation |
+| augmentation | hue | 0.1 | Color jitter hue |
+| logging | wandb_project | `skin-tone-classifier` | W&B project name |
+| logging | log_every_n_steps | 10 | Logging frequency |
+| logging | checkpoint_dir | `checkpoints` | Model checkpoint directory |
 | evaluation | fairness_gap_threshold | 0.15 | Significance threshold for fairness gap |
+| gcs | bucket_name | `skin-tone-project` | GCS bucket for deployment |
+| gcs | region | `us-central1` | GCP region |
 
 ---
 
 ## Testing
 
 ```bash
-# Run all 69 tests
+# Run all 71 tests
 python -m pytest tests/ -v
 
 # Run specific test modules
-python -m pytest tests/test_prepare.py -v      # Data pipeline (43 tests)
+python -m pytest tests/test_prepare.py -v      # Data pipeline (45 tests)
 python -m pytest tests/test_backbone.py -v     # Backbone models (5 tests)
 python -m pytest tests/test_classifier.py -v   # Classifier (4 tests)
+python -m pytest tests/test_dataset.py -v      # Dataset loading (4 tests)
+python -m pytest tests/test_trainer.py -v      # Training utils (5 tests)
+python -m pytest tests/test_metrics.py -v      # Evaluation metrics (3 tests)
+python -m pytest tests/test_fairness.py -v     # Fairness gap (4 tests)
 python -m pytest tests/test_integration.py -v  # End-to-end smoke test (1 test)
 ```
 
-The integration test (`test_integration.py`) creates synthetic images, runs the full pipeline (data prep -> training -> evaluation -> fairness), and verifies correctness on CPU in ~10 seconds.
+The integration test (`test_integration.py`) creates synthetic images, runs the full pipeline (data prep -> training -> evaluation -> fairness), and verifies correctness on CPU.
 
 ---
 
@@ -510,13 +531,11 @@ The integration test (`test_integration.py`) creates synthetic images, runs the 
 ### Class Weight Computation
 
 ```python
-# Inverse-frequency weighting
-weight[i] = total_samples / (num_classes * count[i])
-
-# Example: 6000 train samples across 6 classes
-# Fitz I: 2000, Fitz II: 1500, Fitz III: 1000, Fitz IV: 800, Fitz V: 500, Fitz VI: 200
-# weight_I  = 6000 / (6 * 2000) = 0.50
-# weight_VI = 6000 / (6 * 200)  = 5.00  <-- 10x more weight than Fitz I
+# Inverse-frequency weighting (src/training/trainer.py)
+counts = np.bincount(labels, minlength=num_classes)
+counts[counts == 0] = 1  # avoid division by zero
+total = sum(counts)
+weight[i] = total / (num_classes * counts[i])
 ```
 
 ### Perceptual Deduplication
@@ -539,6 +558,50 @@ std  = [0.229, 0.224, 0.225]
 - **EfficientNetV2-S:** Unfreezes the last 2 feature blocks from `model.features`
 
 Only high-level feature blocks are unfrozen — early layers (edges, textures) transfer well and don't need adaptation.
+
+### Per-Class ROC-AUC
+
+Per-class AUC is computed via binary one-vs-rest (scikit-learn's `multi_class` parameter does not support `average=None`):
+```python
+for each class i:
+    binary_true = (y_true == i)
+    auc_i = roc_auc_score(binary_true, y_proba[:, i])
+```
+
+### Image File Discovery
+
+The `FitzpatrickDataset._find_image()` method handles filenames with or without extensions:
+1. First checks if the bare hasher path exists as a file (handles double-extension filenames like `abc.jpg.jpg`)
+2. Then tries appending `.jpg`, `.jpeg`, `.png`, `.bmp` in order
+
+### CSV Column Auto-Rename
+
+The upstream Fitzpatrick17k CSV uses different column names than the pipeline expects. `load_metadata()` auto-renames:
+- `fitzpatrick_scale` -> `fitzpatrick`
+- `url_alphanum` -> `hasher`
+
+---
+
+## Dependencies
+
+```
+torch>=2.6.0
+torchvision>=0.21.0
+pandas>=2.0.0
+Pillow>=10.0.0
+scikit-learn>=1.3.0
+imagehash>=4.3.0
+requests>=2.31.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+wandb>=0.15.0
+google-cloud-storage>=2.10.0
+google-cloud-aiplatform>=1.30.0
+pyyaml>=6.0
+ipykernel>=6.25.0
+tqdm>=4.65.0
+pytest>=7.4.0
+```
 
 ---
 
@@ -565,6 +628,7 @@ Only high-level feature blocks are unfrozen — early layers (edges, textures) t
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | Severe class imbalance (Fitz V-VI underrepresented) | Model ignores minority classes | Inverse-frequency class weighting, augmentation |
+| Dead source URLs (dataset is from 2021) | Fewer training images | Request bulk download from dataset authors |
 | Shortcut learning (model uses lesion redness as proxy) | Inflated accuracy, poor generalization | Future: segmentation masking, Lab color space |
 | Overfitting on small dataset | Poor test performance | Early stopping, dropout, validation monitoring |
 | AutoML outperforms custom models | Undermines custom approach narrative | Frame as "what does custom training add beyond AutoML?" |
@@ -580,7 +644,7 @@ Only high-level feature blocks are unfrozen — early layers (edges, textures) t
 | Model architecture description | This README, Model Architecture section |
 | Training configuration | `configs/default.yaml` |
 | Per-class metrics table | Notebook 03 output |
-| Confusion matrices | `results/cm_efficientnet.png`, `results/cm_resnet50.png` |
+| Confusion matrices | Notebook 03 output |
 | Fairness gap analysis | Notebook 03 output |
 | Cross-model comparison | Notebook 03 output |
 | Vertex AI Model ID | `scripts/upload_to_vertex.py` output |

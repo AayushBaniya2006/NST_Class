@@ -320,42 +320,88 @@ def stratified_split(
 # 10. download_images
 # ---------------------------------------------------------------------------
 
+def _download_single(args: tuple) -> bool:
+    """Download a single image. Returns True on success."""
+    url, dest = args
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            f.write(resp.content)
+        return True
+    except Exception:
+        return False
+
+
 def download_images(
     df: pd.DataFrame,
     output_dir: str,
     url_col: str = "url",
     hasher_col: str = "hasher",
+    max_workers: int = 20,
+    batch_size: int = 500,
 ) -> int:
-    """Download images from URLs in *df*.  Skip files that already exist.
+    """Download images from URLs in *df* using parallel requests.
+
+    Uses concurrent downloads for speed and processes in batches so
+    progress is visible and the function survives Colab timeouts.
+    Already-downloaded images are skipped automatically.
 
     Returns the number of images **newly downloaded** (not skipped).
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     os.makedirs(output_dir, exist_ok=True)
-    downloaded = 0
-    for _, row in tqdm(df.iterrows(), total=len(df), desc="Downloading images"):
+
+    # Build list of (url, dest) pairs, skipping existing files and bad rows
+    tasks = []
+    for _, row in df.iterrows():
         url = row[url_col]
-        # Skip rows with missing URL or hasher
         if pd.isna(url) or pd.isna(row[hasher_col]):
             continue
         url = str(url)
         hasher = str(row[hasher_col])
-        # If any file for this hasher already exists, skip
         if _find_image_path(output_dir, hasher) is not None:
             continue
-        # Determine extension from URL, default to .jpg
         ext = Path(url).suffix.lower()
         if ext not in _IMAGE_EXTENSIONS:
             ext = ".jpg"
         dest = os.path.join(output_dir, f"{hasher}{ext}")
-        try:
-            resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
-            with open(dest, "wb") as f:
-                f.write(resp.content)
-            downloaded += 1
-        except Exception as exc:
-            logger.warning("Failed to download %s: %s", url, exc)
-    logger.info("Downloaded %d new images", downloaded)
+        tasks.append((url, dest))
+
+    if not tasks:
+        logger.info("No new images to download")
+        return 0
+
+    logger.info("Downloading %d images with %d workers...", len(tasks), max_workers)
+    downloaded = 0
+    failed = 0
+
+    # Process in batches for visible progress
+    for batch_start in range(0, len(tasks), batch_size):
+        batch = tasks[batch_start : batch_start + batch_size]
+        batch_num = batch_start // batch_size + 1
+        total_batches = (len(tasks) + batch_size - 1) // batch_size
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_download_single, t): t for t in batch}
+            for future in tqdm(
+                as_completed(futures),
+                total=len(batch),
+                desc=f"Batch {batch_num}/{total_batches}",
+            ):
+                if future.result():
+                    downloaded += 1
+                else:
+                    failed += 1
+
+        logger.info(
+            "Batch %d/%d done — %d downloaded, %d failed so far",
+            batch_num, total_batches, downloaded, failed,
+        )
+
+    logger.info("Done: %d downloaded, %d failed, %d skipped",
+                downloaded, failed, len(df) - len(tasks) - failed)
     return downloaded
 
 
