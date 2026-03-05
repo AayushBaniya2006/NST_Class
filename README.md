@@ -65,9 +65,7 @@ Fitzpatrick17k ──> Data Cleaning ──> Colab Training ──> Evaluation �
 
 | Step | Notebook | What Happens |
 |------|----------|-------------|
-| 1 | `01_data_exploration.ipynb` | Load Fitzpatrick17k, download images, clean data, validate images, filter non-human images, deduplicate, encode labels, stratified split |
-| 2 | `02_training.ipynb` | Train EfficientNetV2-S and ResNet50 with two-phase transfer learning |
-| 3 | `03_evaluation.ipynb` | Evaluate all models, compute per-class metrics, fairness gap analysis, cross-model comparison |
+| 1-3 | `skin_tone_pipeline.ipynb` | Full pipeline: data cleaning, model training (EfficientNetV2-S + ResNet50), evaluation, fairness analysis |
 | 4 | `04_automl_baseline.ipynb` | Upload images to GCS, train Vertex AI AutoML model as zero-effort baseline |
 
 ---
@@ -297,22 +295,21 @@ NST_Class/
 │       ├── gcs.py                 # GCS upload/download + AutoML manifest
 │       └── logging.py             # Weights & Biases integration
 ├── notebooks/
-│   ├── 01_data_exploration.ipynb  # Data cleaning & distribution analysis
-│   ├── 02_training.ipynb          # Model training with W&B logging
-│   ├── 03_evaluation.ipynb        # Evaluation & fairness comparison
+│   ├── skin_tone_pipeline.ipynb   # Full pipeline: data → training → evaluation
 │   └── 04_automl_baseline.ipynb   # Vertex AI AutoML baseline
 ├── scripts/
-│   ├── train.py                   # CLI entrypoint (local or Vertex AI)
-│   └── upload_to_vertex.py        # Upload model to Vertex AI Model Registry
-├── tests/                         # 71 tests (unit + integration)
-│   ├── test_prepare.py            # 45 tests for data pipeline
-│   ├── test_backbone.py           # 5 tests for backbone loading & forward pass
-│   ├── test_classifier.py         # 4 tests for classifier freeze/unfreeze
+│   └── train.py                   # CLI entrypoint (local or Vertex AI)
+├── tests/                         # 83 tests (unit + integration)
+│   ├── test_prepare.py            # 47 tests for data pipeline
+│   ├── test_backbone.py           # 7 tests for backbone loading & freeze/unfreeze
+│   ├── test_classifier.py         # 4 tests for classifier
 │   ├── test_dataset.py            # 4 tests for dataset loading
 │   ├── test_metrics.py            # 3 tests for evaluation metrics
 │   ├── test_fairness.py           # 4 tests for fairness gap
-│   ├── test_trainer.py            # 5 tests for class weights & early stopping
-│   └── test_integration.py        # 1 end-to-end smoke test
+│   ├── test_trainer.py            # 7 tests for training utils & training loop
+│   ├── test_integration.py        # 1 end-to-end smoke test
+│   ├── test_config.py             # 3 tests for config loading
+│   └── test_transforms.py         # 3 tests for transform pipelines
 ├── configs/
 │   └── default.yaml               # Full experiment configuration
 ├── Dockerfile                     # Vertex AI custom training container
@@ -364,32 +361,14 @@ python -m pytest tests/ -v
 
 ## Usage Guide
 
-### Step 1: Data Exploration & Cleaning
+### Steps 1-3: Full Pipeline
 
-Open `notebooks/01_data_exploration.ipynb` in Colab and run all cells. This will:
-- Download the Fitzpatrick17k CSV from GitHub
-- Download images from source URLs (~30-60 min, some URLs may be dead)
-- Run the 5-step cleaning pipeline
-- Encode 6-class Fitzpatrick labels
-- Display class distribution histograms
-- Perform stratified train/val/test split (70/15/15)
-- Save cleaned CSVs to `data/cleaned/`
+Open `notebooks/skin_tone_pipeline.ipynb` in Colab and run all cells. This single notebook covers:
+1. **Data Exploration & Cleaning** — Download Fitzpatrick17k, clean data, validate images, deduplicate, encode labels, stratified split
+2. **Model Training** — Train both EfficientNetV2-S and ResNet50 with two-phase transfer learning
+3. **Evaluation & Fairness** — Per-class metrics, confusion matrices, fairness gap analysis, cross-model comparison
 
-### Step 2: Custom Model Training
-
-Open `notebooks/02_training.ipynb`:
-1. Ensure runtime is set to **GPU** (Runtime -> Change runtime type -> T4)
-2. Run all cells to train EfficientNetV2-S
-3. Change `backbone="resnet50"` and re-run to train ResNet50
-4. Monitor training at [wandb.ai](https://wandb.ai)
-
-### Step 3: Evaluation & Fairness
-
-Open `notebooks/03_evaluation.ipynb` and run all cells to:
-- Load trained models and run inference on test set
-- Compute all metrics and confusion matrices
-- Perform fairness gap analysis
-- Generate cross-model comparison chart
+Ensure runtime is set to **GPU** (Runtime -> Change runtime type -> T4). Google Drive backup/restore is built in to persist data across sessions.
 
 ### Step 4: AutoML Baseline (Optional)
 
@@ -457,15 +436,6 @@ gcloud ai custom-jobs create \
   --worker-pool-spec=machine-type=n1-standard-8,accelerator-type=NVIDIA_TESLA_T4,accelerator-count=1,container-image-uri=gcr.io/YOUR_PROJECT/skin-tone-trainer
 ```
 
-### Upload to Model Registry
-
-```bash
-python scripts/upload_to_vertex.py \
-  --model-path gs://skin-tone-project/models/efficientnet_v2_s/ \
-  --display-name skin-tone-classifier-v1 \
-  --project YOUR_PROJECT_ID
-```
-
 ---
 
 ## Configuration Reference
@@ -474,51 +444,45 @@ All training parameters are defined in `configs/default.yaml`:
 
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
-| data | image_size | 224 | Input image resolution |
-| data | num_classes | 6 | Number of output classes |
-| data | split_ratios | 70/15/15 | Train/val/test split |
-| data | random_seed | 42 | Random seed for reproducibility |
 | training | backbone | `efficientnet_v2_s` | Model backbone (`efficientnet_v2_s` or `resnet50`) |
 | training | pretrained | true | Use ImageNet pretrained weights |
+| training | num_classes | 6 | Number of output classes |
+| training | dropout | 0.3 | Dropout before classification head |
 | training | freeze_backbone | true | Freeze backbone in phase 1 |
 | training | unfreeze_after_epochs | 5 | When to start fine-tuning |
 | training | unfreeze_n_blocks | 2 | Number of backbone blocks to unfreeze |
+| training | epochs | 20 | Maximum training epochs |
+| training | batch_size | 32 | Training batch size |
+| training | num_workers | 4 | DataLoader workers |
 | training | learning_rate | 0.0001 | Adam learning rate |
 | training | weight_decay | 0.0001 | Adam weight decay |
-| training | batch_size | 32 | Training batch size |
-| training | epochs | 20 | Maximum training epochs |
 | training | early_stopping_patience | 5 | Epochs without improvement before stopping |
 | training | use_class_weights | true | Enable inverse-frequency weighting |
-| training | num_workers | 4 | DataLoader workers |
-| augmentation | horizontal_flip | true | Random horizontal flip |
-| augmentation | rotation_degrees | 15 | Random rotation range |
-| augmentation | brightness | 0.2 | Color jitter brightness |
-| augmentation | contrast | 0.2 | Color jitter contrast |
-| augmentation | saturation | 0.2 | Color jitter saturation |
-| augmentation | hue | 0.1 | Color jitter hue |
+| training | image_size | 224 | Input image resolution |
+| training | random_seed | 42 | Random seed for reproducibility |
 | logging | wandb_project | `skin-tone-classifier` | W&B project name |
+| logging | wandb_entity | null | W&B team/user name |
 | logging | log_every_n_steps | 10 | Logging frequency |
 | logging | checkpoint_dir | `checkpoints` | Model checkpoint directory |
-| evaluation | fairness_gap_threshold | 0.15 | Significance threshold for fairness gap |
-| gcs | bucket_name | `skin-tone-project` | GCS bucket for deployment |
-| gcs | region | `us-central1` | GCP region |
 
 ---
 
 ## Testing
 
 ```bash
-# Run all 71 tests
+# Run all 83 tests
 python -m pytest tests/ -v
 
 # Run specific test modules
-python -m pytest tests/test_prepare.py -v      # Data pipeline (45 tests)
-python -m pytest tests/test_backbone.py -v     # Backbone models (5 tests)
+python -m pytest tests/test_prepare.py -v      # Data pipeline (47 tests)
+python -m pytest tests/test_backbone.py -v     # Backbone models (7 tests)
 python -m pytest tests/test_classifier.py -v   # Classifier (4 tests)
 python -m pytest tests/test_dataset.py -v      # Dataset loading (4 tests)
-python -m pytest tests/test_trainer.py -v      # Training utils (5 tests)
+python -m pytest tests/test_trainer.py -v      # Training utils + loop (7 tests)
 python -m pytest tests/test_metrics.py -v      # Evaluation metrics (3 tests)
 python -m pytest tests/test_fairness.py -v     # Fairness gap (4 tests)
+python -m pytest tests/test_config.py -v       # Config loading (3 tests)
+python -m pytest tests/test_transforms.py -v   # Transform pipelines (3 tests)
 python -m pytest tests/test_integration.py -v  # End-to-end smoke test (1 test)
 ```
 
@@ -570,9 +534,11 @@ for each class i:
 
 ### Image File Discovery
 
-The `FitzpatrickDataset._find_image()` method handles filenames with or without extensions:
+The `_find_image_path()` function in `prepare.py` handles filenames with or without extensions:
 1. First checks if the bare hasher path exists as a file (handles double-extension filenames like `abc.jpg.jpg`)
 2. Then tries appending `.jpg`, `.jpeg`, `.png`, `.bmp` in order
+
+This is the canonical implementation used by both `FitzpatrickDataset` and the data cleaning pipeline.
 
 ### CSV Column Auto-Rename
 
@@ -647,7 +613,7 @@ pytest>=7.4.0
 | Confusion matrices | Notebook 03 output |
 | Fairness gap analysis | Notebook 03 output |
 | Cross-model comparison | Notebook 03 output |
-| Vertex AI Model ID | `scripts/upload_to_vertex.py` output |
+| Vertex AI Model ID | Vertex AI console (after deployment) |
 | W&B experiment dashboard | [wandb.ai](https://wandb.ai) project |
 
 ---

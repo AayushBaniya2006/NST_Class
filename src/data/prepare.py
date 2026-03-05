@@ -290,6 +290,8 @@ def stratified_split(
     twice: first to carve off the train set, then to split the remainder into
     validation and test sets.
     """
+    if abs(sum(ratios) - 1.0) > 1e-6:
+        raise ValueError(f"ratios must sum to 1.0, got {sum(ratios):.4f}")
     train_ratio, val_ratio, test_ratio = ratios
     # First split: train vs (val + test)
     remaining_ratio = val_ratio + test_ratio

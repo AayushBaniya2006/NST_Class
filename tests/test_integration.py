@@ -75,6 +75,8 @@ def test_full_pipeline_smoke(synthetic_data):
 
     assert len(history["train"]) == 2
     assert len(history["val"]) == 2
+    assert np.isfinite(history["train"][-1]["loss"])
+    assert history["val"][-1]["accuracy"] > 0
 
     # Evaluate
     model.eval()

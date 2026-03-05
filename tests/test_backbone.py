@@ -31,3 +31,26 @@ class TestGetBackbone:
         x = torch.randn(2, 3, 224, 224)
         out = model(x)
         assert out.shape == (2, dim)
+
+
+class TestFreezeUnfreeze:
+    def test_freeze_backbone_all_frozen(self):
+        from src.models.backbone import freeze_backbone
+        model, _ = get_backbone("resnet50", pretrained=False)
+        freeze_backbone(model)
+        for p in model.parameters():
+            assert not p.requires_grad
+
+    def test_unfreeze_last_n_blocks(self):
+        from src.models.backbone import freeze_backbone, unfreeze_last_n_blocks
+        model, _ = get_backbone("resnet50", pretrained=False)
+        freeze_backbone(model)
+        unfreeze_last_n_blocks(model, "resnet50", n=2)
+        # layer4 and layer3 should be unfrozen
+        for p in model.layer4.parameters():
+            assert p.requires_grad
+        for p in model.layer3.parameters():
+            assert p.requires_grad
+        # layer2 should remain frozen
+        for p in model.layer2.parameters():
+            assert not p.requires_grad

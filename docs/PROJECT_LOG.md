@@ -194,23 +194,58 @@ Rewrote the entire README with every claim verified against source code:
 
 ---
 
+### Phase 9: Project Cleanup & Notebook Consolidation
+
+Comprehensive cleanup to make the project lean and maintainable.
+
+**Notebooks consolidated:**
+- Merged `01_data_exploration.ipynb` + `02_training.ipynb` + `03_evaluation.ipynb` into `skin_tone_pipeline.ipynb`
+- Kept `04_automl_baseline.ipynb` separate (requires GCP)
+
+**Dead code removed:**
+- `src/utils/logging.py` — deleted 3 unused functions (`log_confusion_matrix`, `log_metrics_table`, `log_fairness_chart`)
+- `src/utils/gcs.py` — deleted unused `download_file_from_gcs()`
+- `scripts/upload_to_vertex.py` — dead script, never called
+- `src/training/config.py` — removed unused `class_names` field
+- `docs/plans/2026-02-26-skin-tone-classifier-implementation.md` — stale 3-class plan (3197 lines)
+
+**Bug fixes:**
+- `src/evaluation/confusion.py` — removed `matplotlib.use("Agg")` that broke interactive display
+- `src/data/prepare.py` — added ratio sum validation in `stratified_split()`
+- `scripts/train.py` — replaced f-string path construction with `os.path.join()`
+- `src/training/trainer.py` — documented intentional early stopping reset at phase transition
+
+**Duplicates consolidated:**
+- `dataset.py._find_image()` replaced with import of `prepare.py._find_image_path()`
+- `gcs.py._IMAGE_EXTENSIONS` replaced with import from `prepare.py`
+
+**Config slimmed:**
+- `configs/default.yaml` — removed 14 unused keys (data, augmentation, gcs, evaluation sections)
+- Reduced from ~55 lines to ~25 lines
+
+**Tests improved:**
+- Fixed 3 weak tests (deterministic probabilities, value assertions)
+- Added 12 new tests: config, transforms, trainer training, backbone freeze/unfreeze, prepare edge cases
+- Total: 71 → 83 tests
+
+---
+
 ## Current State
 
 ### What's Done
-- All source code written and tested (71 tests passing)
+- All source code written and tested (83 tests passing)
 - Data pipeline complete (download, clean, validate, filter, deduplicate, encode, split)
-- Notebook 01 run successfully — 12,177 images survived cleaning (73% of 16,577)
+- Notebook 01 ran successfully — 12,177 images survived cleaning (73% of 16,577)
   - 9.67x class imbalance ratio
   - Train: 8,523 / Val: 1,827 / Test: 1,827
 - Data backed up to Google Drive
-- Notebook 02 currently running (training EfficientNetV2-S)
+- EfficientNetV2-S training completed
 
 ### What's Left
-- Finish training EfficientNetV2-S (notebook 02)
-- Train ResNet50 (modify backbone in notebook 02 and re-run)
-- Run evaluation and fairness analysis (notebook 03)
+- Train ResNet50 (unified notebook supports both backbones)
+- Run evaluation and fairness analysis (Section 3 of unified notebook)
 - Optionally run AutoML baseline (notebook 04, requires GCP project)
-- Upload model to Vertex AI Model Registry (Phase 7-8 of original plan)
+- Upload model to Vertex AI Model Registry
 
 ---
 
@@ -297,21 +332,23 @@ Fitzpatrick17k CSV
 | `src/utils/gcs.py` | ~120 | GCS helpers + AutoML manifest with extension detection |
 | `src/utils/logging.py` | ~30 | W&B init wrapper |
 | `scripts/train.py` | ~111 | CLI entrypoint with argparse overrides |
-| `scripts/upload_to_vertex.py` | ~40 | Upload model to Vertex AI Model Registry |
-| `configs/default.yaml` | ~55 | All default hyperparameters |
+| `scripts/train.py` (CLI only) | ~112 | CLI entrypoint with argparse overrides |
+| `configs/default.yaml` | ~25 | Training + logging hyperparameters |
 | `Dockerfile` | ~23 | pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime |
-| `tests/test_prepare.py` | ~432 | 45 tests for data pipeline |
-| `tests/test_backbone.py` | ~50 | 5 tests for backbone loading |
+| `tests/test_prepare.py` | ~480 | 47 tests for data pipeline |
+| `tests/test_backbone.py` | ~60 | 7 tests for backbone loading + freeze/unfreeze |
 | `tests/test_classifier.py` | ~60 | 4 tests for classifier |
 | `tests/test_dataset.py` | ~70 | 4 tests for dataset |
 | `tests/test_metrics.py` | ~50 | 3 tests for metrics |
 | `tests/test_fairness.py` | ~60 | 4 tests for fairness |
-| `tests/test_trainer.py` | ~70 | 5 tests for training utils |
+| `tests/test_trainer.py` | ~110 | 7 tests for training utils + training loop |
 | `tests/test_integration.py` | ~80 | 1 end-to-end smoke test |
+| `tests/test_config.py` | ~45 | 3 tests for config loading |
+| `tests/test_transforms.py` | ~30 | 3 tests for transform pipelines |
 | `requirements.txt` | ~31 | 16 dependencies (no timm) |
 | `README.md` | ~600 | Hyper-accurate project documentation |
 
-**Total: 71 tests across 8 test files**
+**Total: 83 tests across 10 test files**
 
 ---
 

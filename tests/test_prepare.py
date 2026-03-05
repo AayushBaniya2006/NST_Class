@@ -443,6 +443,42 @@ class TestGenerateCleaningReport:
 # Test: download_images (basic)
 # ===================================================================
 
+class TestStratifiedSplitInvalidRatios:
+    def test_stratified_split_invalid_ratios(self):
+        df = make_sample_df(100)
+        df = encode_labels(df)
+        with pytest.raises(ValueError, match="ratios must sum to 1.0"):
+            stratified_split(df, "skin_tone_label", ratios=(0.5, 0.2, 0.2))
+
+
+class TestRunFullPipeline:
+    def test_run_full_pipeline(self, tmp_path):
+        # Create synthetic images and CSV
+        image_dir = tmp_path / "images"
+        image_dir.mkdir()
+        rows = []
+        for i in range(60):
+            arr = np.random.default_rng(i).integers(0, 256, (100, 100, 3), dtype=np.uint8)
+            img = Image.fromarray(arr)
+            img.save(image_dir / f"img_{i}.jpg")
+            rows.append({
+                "hasher": f"img_{i}",
+                "url": f"http://example.com/img_{i}.jpg",
+                "fitzpatrick": (i % 6) + 1,
+            })
+        csv_path = tmp_path / "meta.csv"
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
+        output_dir = tmp_path / "output"
+
+        result = run_full_pipeline(str(csv_path), str(image_dir), str(output_dir))
+
+        assert "report" in result
+        assert "splits" in result
+        assert (output_dir / "train.csv").is_file()
+        assert (output_dir / "val.csv").is_file()
+        assert (output_dir / "test.csv").is_file()
+
+
 class TestDownloadImages:
     def test_skips_existing(self, tmp_path):
         # Pre-create an image that would be "downloaded"

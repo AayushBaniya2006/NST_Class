@@ -1,7 +1,7 @@
 """Training configuration as a dataclass, loadable from YAML."""
 import dataclasses
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import yaml
@@ -33,7 +33,7 @@ class TrainingConfig:
     # Data
     image_size: int = 224
     num_workers: int = 4
-    class_names: list = field(default_factory=lambda: ["1", "2", "3", "4", "5", "6"])
+
 
     # Logging
     wandb_project: str = "skin-tone-classifier"

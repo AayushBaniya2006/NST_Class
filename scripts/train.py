@@ -1,6 +1,7 @@
 """CLI entrypoint for training — usable locally or as Vertex AI custom job."""
 import argparse
 import logging
+import os
 import random
 import sys
 from pathlib import Path
@@ -65,8 +66,8 @@ def main():
     logger.info("Config: %s", config)
 
     # Load data
-    train_df = pd.read_csv(f"{args.data_dir}/train.csv")
-    val_df = pd.read_csv(f"{args.data_dir}/val.csv")
+    train_df = pd.read_csv(os.path.join(args.data_dir, "train.csv"))
+    val_df = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
 
     train_dataset = FitzpatrickDataset(train_df, args.image_dir, transform=get_train_transforms(config.image_size))
     val_dataset = FitzpatrickDataset(val_df, args.image_dir, transform=get_eval_transforms(config.image_size))
@@ -98,7 +99,7 @@ def main():
 
     # Save final model
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    final_path = f"{args.output_dir}/{config.backbone}_final.pt"
+    final_path = os.path.join(args.output_dir, f"{config.backbone}_final.pt")
     torch.save(model.state_dict(), final_path)
     logger.info(f"Final model saved to {final_path}")
 

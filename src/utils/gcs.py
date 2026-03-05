@@ -2,6 +2,8 @@
 import logging
 from pathlib import Path
 
+from src.data.prepare import _IMAGE_EXTENSIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,22 +51,6 @@ def upload_file_to_gcs(local_path: str, bucket_name: str, blob_name: str) -> str
     uri = f"gs://{bucket_name}/{blob_name}"
     logger.info(f"Uploaded {local_path} to {uri}")
     return uri
-
-
-def download_file_from_gcs(bucket_name: str, blob_name: str, local_path: str) -> str:
-    """Download a single file from GCS."""
-    from google.cloud import storage
-
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(blob_name)
-    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
-    blob.download_to_filename(local_path)
-    logger.info(f"Downloaded gs://{bucket_name}/{blob_name} to {local_path}")
-    return local_path
-
-
-_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
 
 
 def _find_image_extension(image_dir: str, hasher: str) -> str:

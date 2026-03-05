@@ -184,6 +184,7 @@ class Trainer:
                     self.optimizer,
                     T_max=self.config.epochs - epoch,
                 )
+                # Reset early stopping: new phase gets fresh patience
                 self.early_stopping = EarlyStopping(
                     patience=self.config.early_stopping_patience,
                 )

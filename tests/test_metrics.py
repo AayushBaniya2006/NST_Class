@@ -17,16 +17,23 @@ class TestComputeAllMetrics:
     def test_per_class_metrics_present(self):
         y_true = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
         y_pred = [0, 1, 1, 1, 2, 0, 3, 4, 4, 4, 5, 3]
-        y_proba = np.random.rand(12, 6)
+        # Deterministic probabilities
+        y_proba = np.eye(6)[y_pred] * 0.8 + 0.02
         metrics = compute_all_metrics(y_true, y_pred, y_proba, class_names=CLASS_NAMES)
         assert "per_class" in metrics
         assert "1" in metrics["per_class"]
         assert "precision" in metrics["per_class"]["1"]
         assert "recall" in metrics["per_class"]["1"]
+        assert 0.0 <= metrics["accuracy"] <= 1.0
+        # Class "2" (label 1): both correct, recall should be 1.0
+        assert metrics["per_class"]["2"]["recall"] == 1.0
 
     def test_confusion_matrix_shape(self):
         y_true = [0, 1, 2, 3, 4, 5]
         y_pred = [0, 1, 2, 3, 4, 5]
-        y_proba = np.random.rand(6, 6)
+        y_proba = np.eye(6)
         metrics = compute_all_metrics(y_true, y_pred, y_proba, class_names=CLASS_NAMES)
         assert metrics["confusion_matrix"].shape == (6, 6)
+        # Perfect predictions: diagonal should all be 1, off-diagonal 0
+        assert np.all(np.diag(metrics["confusion_matrix"]) == 1)
+        assert metrics["confusion_matrix"].sum() == 6
