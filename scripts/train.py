@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.data.dataset import FitzpatrickDataset
-from src.data.transforms import get_train_transforms, get_eval_transforms
+from src.data.transforms import get_train_transforms, get_eval_transforms, AUGMENTATION_BUCKETS
 from src.models.classifier import SkinToneClassifier
 from src.training.config import TrainingConfig
 from src.training.trainer import Trainer, compute_class_weights
@@ -34,6 +34,9 @@ def main():
     parser.add_argument("--data-dir", type=str, default="data/cleaned", help="Directory with train/val CSVs")
     parser.add_argument("--image-dir", type=str, default="data/images", help="Directory with images")
     parser.add_argument("--output-dir", type=str, default="checkpoints", help="Where to save model")
+    parser.add_argument("--augmentation", type=str, default="combined",
+                        choices=AUGMENTATION_BUCKETS,
+                        help="Augmentation bucket (default: combined)")
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     args = parser.parse_args()
 
@@ -63,13 +66,14 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     use_pin_memory = device == "cuda"
     logger.info("Device: %s", device)
+    logger.info("Augmentation bucket: %s", args.augmentation)
     logger.info("Config: %s", config)
 
     # Load data
     train_df = pd.read_csv(os.path.join(args.data_dir, "train.csv"))
     val_df = pd.read_csv(os.path.join(args.data_dir, "val.csv"))
 
-    train_dataset = FitzpatrickDataset(train_df, args.image_dir, transform=get_train_transforms(config.image_size))
+    train_dataset = FitzpatrickDataset(train_df, args.image_dir, transform=get_train_transforms(config.image_size, augmentation=args.augmentation))
     val_dataset = FitzpatrickDataset(val_df, args.image_dir, transform=get_eval_transforms(config.image_size))
 
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=config.num_workers, pin_memory=use_pin_memory)
@@ -91,7 +95,7 @@ def main():
     wandb_run = None
     if not args.no_wandb:
         from src.utils.logging import init_wandb
-        wandb_run = init_wandb(config.wandb_project, vars(config), run_name=f"{config.backbone}_vertex")
+        wandb_run = init_wandb(config.wandb_project, {**vars(config), "augmentation": args.augmentation}, run_name=f"{config.backbone}_aug-{args.augmentation}")
 
     # Train
     trainer = Trainer(model, config, train_loader, val_loader, class_weights, device, wandb_run)
