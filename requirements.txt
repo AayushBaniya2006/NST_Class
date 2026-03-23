@@ -20,6 +20,9 @@ wandb>=0.15.0
 google-cloud-storage>=2.10.0
 google-cloud-aiplatform>=1.30.0
 
+# Augmentation
+albumentations>=1.4.0
+
 # Config
 pyyaml>=6.0
 
