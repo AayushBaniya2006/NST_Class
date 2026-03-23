@@ -102,6 +102,7 @@ def augment_images(
     created = 0
     output_paths: List[Path] = []
     cycle_idx = 0
+    _cache: Dict[Path, np.ndarray] = {}  # cache source images in memory
 
     with tqdm(total=target_count, desc="Augmenting images") as pbar:
         while created < target_count:
@@ -109,9 +110,12 @@ def augment_images(
             cycle_idx += 1
 
             try:
-                with Image.open(img_path) as img:
-                    image = img.convert("RGB")
-                arr = np.array(image)
+                # Cache images in memory to avoid re-reading from disk
+                # (type 6 has 492 images cycled ~5x each = 2500 disk reads saved)
+                if img_path not in _cache:
+                    with Image.open(img_path) as img:
+                        _cache[img_path] = np.array(img.convert("RGB"))
+                arr = _cache[img_path]
 
                 # Seed albumentations per-image for reproducibility
                 aug_seed = int(rng.integers(0, 2**31))
