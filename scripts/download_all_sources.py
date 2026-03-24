@@ -1,8 +1,8 @@
 """Download images from all 3 dataset sources into a single local directory.
 
 Sources:
-  1. Fitzpatrick17k — HTTP URLs from fitzpatrick17k.csv
-     (Atlas Dermatologico URLs work; DermaAmin URLs are dead but tried anyway)
+  1. Fitzpatrick17k — GCS bucket gs://fitzpatrick-dataset/all_images/ (primary),
+     with HTTP URL fallback for any missing images
   2. SCIN — public GCS bucket gs://dx-scin-public-data/dataset/images/
   3. PAD-UFES — Mendeley Data zip download
 
@@ -41,6 +41,9 @@ logger = logging.getLogger(__name__)
 # Fitzpatrick17k
 # ---------------------------------------------------------------------------
 
+FITZ_BUCKET = "gs://fitzpatrick-dataset/all_images"
+
+
 def _download_single_image(args: tuple) -> bool:
     """Download a single image from URL. Returns True on success."""
     url, dest = args
@@ -57,6 +60,39 @@ def _download_single_image(args: tuple) -> bool:
         return False
 
 
+def _download_fitz_from_gcs(needed: set, output_dir: str) -> int:
+    """Download Fitzpatrick17k images from GCS bucket. Returns count downloaded."""
+    manifest_path = os.path.join(tempfile.gettempdir(), "fitz_manifest.txt")
+    with open(manifest_path, "w") as f:
+        for img_id in sorted(needed):
+            f.write(f"{FITZ_BUCKET}/{img_id}\n")
+
+    env = os.environ.copy()
+    env["CLOUDSDK_STORAGE_THREAD_COUNT"] = "16"
+    env["CLOUDSDK_STORAGE_PROCESS_COUNT"] = "4"
+
+    try:
+        with open(manifest_path, "r") as manifest_f:
+            subprocess.run(
+                ["gcloud", "storage", "cp", "-I", f"{output_dir}/"],
+                stdin=manifest_f,
+                check=True,
+                env=env,
+            )
+    except subprocess.CalledProcessError as e:
+        logger.warning("Fitzpatrick17k GCS download had errors: %s", e)
+    except FileNotFoundError:
+        logger.warning("Fitzpatrick17k: 'gcloud' CLI not found, skipping GCS.")
+        return 0
+
+    # Count how many we got
+    new_existing = {
+        f.name for f in Path(output_dir).iterdir() if f.is_file()
+    }
+    downloaded = len(new_existing & needed)
+    return downloaded
+
+
 def download_fitzpatrick(
     combined_df: pd.DataFrame,
     fitz_csv_path: str,
@@ -64,14 +100,18 @@ def download_fitzpatrick(
     max_workers: int = 50,
     batch_size: int = 500,
 ) -> Dict[str, int]:
-    """Download Fitzpatrick17k images from their original URLs.
+    """Download Fitzpatrick17k images from GCS bucket, with URL fallback.
+
+    Strategy:
+      1. Try GCS bucket gs://fitzpatrick-dataset/all_images/ (fast, bulk)
+      2. Fall back to original HTTP URLs for any remaining images
 
     Args:
         combined_df: DataFrame with img_id and source columns.
         fitz_csv_path: Path to fitzpatrick17k.csv (has md5hash -> url mapping).
         output_dir: Directory to save images.
-        max_workers: Concurrent download threads.
-        batch_size: Images per progress batch.
+        max_workers: Concurrent download threads (URL fallback).
+        batch_size: Images per progress batch (URL fallback).
 
     Returns:
         Dict with keys: downloaded, failed, skipped, total.
@@ -93,58 +133,67 @@ def download_fitzpatrick(
         logger.info("Fitzpatrick17k: all %d images already present", len(fitz_ids))
         return {"downloaded": 0, "failed": 0, "skipped": skipped, "total": len(fitz_ids)}
 
-    # Load the fitz CSV to get URL mappings
+    # --- Phase 1: GCS bucket (fast, bulk) ---
+    logger.info(
+        "Fitzpatrick17k: downloading %d images from GCS bucket...", len(needed),
+    )
+    gcs_downloaded = _download_fitz_from_gcs(needed, output_dir)
+    logger.info("Fitzpatrick17k GCS: %d downloaded", gcs_downloaded)
+
+    # Recheck what's still needed after GCS
+    existing = {
+        f.name for f in Path(output_dir).iterdir() if f.is_file()
+    }
+    still_needed = fitz_ids - existing
+
+    if not still_needed:
+        total_dl = gcs_downloaded
+        logger.info("Fitzpatrick17k done: %d from GCS, %d skipped", total_dl, skipped)
+        return {"downloaded": total_dl, "failed": 0, "skipped": skipped, "total": len(fitz_ids)}
+
+    # --- Phase 2: URL fallback for remaining images ---
+    logger.info(
+        "Fitzpatrick17k: %d still missing, trying original URLs...", len(still_needed),
+    )
     fitz_csv = pd.read_csv(fitz_csv_path)
     fitz_csv["img_id"] = fitz_csv["md5hash"] + ".jpg"
     url_map = dict(zip(fitz_csv["img_id"], fitz_csv["url"]))
 
-    # Build download tasks
     tasks = []
-    for img_id in needed:
+    for img_id in still_needed:
         url = url_map.get(img_id)
         if url and pd.notna(url):
             dest = os.path.join(output_dir, img_id)
             tasks.append((str(url), dest))
 
-    if not tasks:
-        logger.info("Fitzpatrick17k: no downloadable URLs found")
-        return {"downloaded": 0, "failed": 0, "skipped": skipped, "total": len(fitz_ids)}
+    url_downloaded = 0
+    url_failed = 0
 
+    if tasks:
+        for batch_start in range(0, len(tasks), batch_size):
+            batch = tasks[batch_start : batch_start + batch_size]
+            batch_num = batch_start // batch_size + 1
+            total_batches = (len(tasks) + batch_size - 1) // batch_size
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_download_single_image, t): t for t in batch}
+                for future in tqdm(
+                    as_completed(futures),
+                    total=len(batch),
+                    desc=f"Fitz URL batch {batch_num}/{total_batches}",
+                ):
+                    if future.result():
+                        url_downloaded += 1
+                    else:
+                        url_failed += 1
+
+    total_dl = gcs_downloaded + url_downloaded
+    total_failed = url_failed + (len(still_needed) - len(tasks))  # no-URL entries
     logger.info(
-        "Fitzpatrick17k: downloading %d images (%d skipped, %d workers)...",
-        len(tasks), skipped, max_workers,
+        "Fitzpatrick17k done: %d from GCS, %d from URLs, %d failed, %d skipped",
+        gcs_downloaded, url_downloaded, total_failed, skipped,
     )
-
-    downloaded = 0
-    failed = 0
-
-    for batch_start in range(0, len(tasks), batch_size):
-        batch = tasks[batch_start : batch_start + batch_size]
-        batch_num = batch_start // batch_size + 1
-        total_batches = (len(tasks) + batch_size - 1) // batch_size
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_download_single_image, t): t for t in batch}
-            for future in tqdm(
-                as_completed(futures),
-                total=len(batch),
-                desc=f"Fitz batch {batch_num}/{total_batches}",
-            ):
-                if future.result():
-                    downloaded += 1
-                else:
-                    failed += 1
-
-        logger.info(
-            "Fitz batch %d/%d — %d downloaded, %d failed",
-            batch_num, total_batches, downloaded, failed,
-        )
-
-    logger.info(
-        "Fitzpatrick17k done: %d downloaded, %d failed, %d skipped",
-        downloaded, failed, skipped,
-    )
-    return {"downloaded": downloaded, "failed": failed, "skipped": skipped, "total": len(fitz_ids)}
+    return {"downloaded": total_dl, "failed": total_failed, "skipped": skipped, "total": len(fitz_ids)}
 
 
 # ---------------------------------------------------------------------------
