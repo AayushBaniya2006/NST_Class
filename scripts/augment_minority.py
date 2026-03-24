@@ -30,24 +30,51 @@ logger = logging.getLogger(__name__)
 _EXTENSIONS_SET = {ext.lower() for ext in _IMAGE_EXTENSIONS}
 
 
-def get_augmentation_pipeline(image_size: int = 224) -> A.Compose:
-    """Return the approved Albumentations augmentation pipeline.
+TRANSFORM_BUCKETS = ["flip", "rotate", "crop", "noise", "combined"]
 
-    Only includes transforms approved by professor:
-    flips, rotations, random crop/zoom, Gaussian noise.
+
+def get_augmentation_pipeline(image_size: int = 224, bucket: str = "combined") -> A.Compose:
+    """Return an Albumentations pipeline for a specific augmentation bucket.
+
+    Buckets (each used for 20% of augmented images):
+      flip     — HorizontalFlip only
+      rotate   — Rotate (±30°) only
+      crop     — RandomResizedCrop only
+      noise    — GaussNoise only
+      combined — all four together
+
     NO brightness, contrast, color jitter, or blurring.
     """
-    return A.Compose([
-        A.HorizontalFlip(p=0.5),
-        A.Rotate(limit=30, border_mode=0, value=0, p=0.8),
-        A.RandomResizedCrop(
-            size=(image_size, image_size),
-            scale=(0.8, 1.0),
-            ratio=(0.9, 1.1),
-            p=0.7,
-        ),
-        A.GaussNoise(std_range=(0.02, 0.06), p=0.5),
-    ])
+    if bucket == "flip":
+        transforms = [A.HorizontalFlip(p=1.0)]
+    elif bucket == "rotate":
+        transforms = [A.Rotate(limit=30, border_mode=0, value=0, p=1.0)]
+    elif bucket == "crop":
+        transforms = [
+            A.RandomResizedCrop(
+                size=(image_size, image_size),
+                scale=(0.8, 1.0),
+                ratio=(0.9, 1.1),
+                p=1.0,
+            ),
+        ]
+    elif bucket == "noise":
+        transforms = [A.GaussNoise(std_range=(0.02, 0.06), p=1.0)]
+    elif bucket == "combined":
+        transforms = [
+            A.HorizontalFlip(p=0.5),
+            A.Rotate(limit=30, border_mode=0, value=0, p=0.8),
+            A.RandomResizedCrop(
+                size=(image_size, image_size),
+                scale=(0.8, 1.0),
+                ratio=(0.9, 1.1),
+                p=0.7,
+            ),
+            A.GaussNoise(std_range=(0.02, 0.06), p=0.5),
+        ]
+    else:
+        raise ValueError(f"Unknown bucket {bucket!r}. Must be one of {TRANSFORM_BUCKETS}")
+    return A.Compose(transforms)
 
 
 def augment_images(
@@ -57,6 +84,7 @@ def augment_images(
     target_count: int,
     seed: int = 42,
     image_size: int = 224,
+    bucket: str = "combined",
 ) -> Tuple[int, List[Path]]:
     """Generate augmented copies of specified images.
 
@@ -70,13 +98,14 @@ def augment_images(
         target_count: Number of augmented images to generate.
         seed: Random seed for reproducibility.
         image_size: Output image size (square).
+        bucket: Augmentation bucket — "flip", "rotate", "crop", "noise", or "combined".
 
     Returns:
         Tuple of (count created, list of output paths).
     """
     rng = np.random.default_rng(seed)
     os.makedirs(output_dir, exist_ok=True)
-    pipeline = get_augmentation_pipeline(image_size)
+    pipeline = get_augmentation_pipeline(image_size, bucket=bucket)
 
     # Resolve actual paths for the img_ids
     input_path = Path(input_dir)
@@ -123,7 +152,7 @@ def augment_images(
                 np.random.seed(aug_seed % (2**31))
                 augmented = pipeline(image=arr)["image"]
 
-                out_name = f"{img_path.stem}_aug_{created}{img_path.suffix}"
+                out_name = f"{img_path.stem}_{bucket}_{created}{img_path.suffix}"
                 out_path = Path(output_dir) / out_name
                 Image.fromarray(augmented).save(str(out_path))
                 output_paths.append(out_path)
@@ -173,9 +202,15 @@ def verify_augmentation(
             img.verify()
             valid += 1
 
-            # Check pixels differ from source (strip _aug_N suffix)
+            # Check pixels differ from source (strip _{bucket}_{N} suffix)
             stem = f.stem
-            orig_stem = stem.rsplit("_aug_", 1)[0] if "_aug_" in stem else stem
+            # Handle both old _aug_N and new _{bucket}_{N} naming
+            for tag in ["_flip_", "_rotate_", "_crop_", "_noise_", "_combined_", "_aug_"]:
+                if tag in stem:
+                    orig_stem = stem.split(tag)[0]
+                    break
+            else:
+                orig_stem = stem
             orig_candidates = list(Path(original_dir).rglob(f"{orig_stem}.*"))
             if orig_candidates:
                 orig_arr = np.array(Image.open(orig_candidates[0]).convert("RGB"))
@@ -219,6 +254,9 @@ def main():
                         help="Random seed (default: 42)")
     parser.add_argument("--image-size", type=int, default=224,
                         help="Output image size (default: 224)")
+    parser.add_argument("--bucket", type=str, default="combined",
+                        choices=TRANSFORM_BUCKETS,
+                        help="Augmentation bucket (default: combined)")
     parser.add_argument("--verify", action="store_true",
                         help="Run verification after augmentation")
 
@@ -228,12 +266,13 @@ def main():
     df = pd.read_csv(args.csv)
     class_imgs = df[df["fitzpatrick_scale"] == args.target_class]["img_id"].tolist()
 
-    logger.info("Class %d: %d source images, generating %d augmented",
-                args.target_class, len(class_imgs), args.target_count)
+    logger.info("Class %d: %d source images, generating %d augmented (%s)",
+                args.target_class, len(class_imgs), args.target_count, args.bucket)
 
     created, paths = augment_images(
         args.input_dir, args.output_dir, class_imgs,
         args.target_count, args.seed, args.image_size,
+        bucket=args.bucket,
     )
 
     if args.verify and created > 0:
