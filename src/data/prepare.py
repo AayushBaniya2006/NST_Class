@@ -41,6 +41,7 @@ FITZPATRICK_TO_LABEL: dict[int, int] = {
 
 # Image extensions to try when locating a file on disk.
 _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
+_EXTENSIONS_SET = frozenset(ext.lower() for ext in _IMAGE_EXTENSIONS)
 
 
 # ---------------------------------------------------------------------------

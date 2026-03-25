@@ -43,5 +43,13 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
+# Root-level data files
+combined_dataset.csv
+fitzpatrick17k.xlsx
+balanced_dataset.csv
+
+# Workspace artifacts
+docs/superpowers/
+
 # Worktrees
 .worktrees/

@@ -73,14 +73,22 @@ def _download_fitz_from_gcs(needed: set, output_dir: str) -> int:
 
     try:
         with open(manifest_path, "r") as manifest_f:
-            subprocess.run(
+            result = subprocess.run(
                 ["gcloud", "storage", "cp", "-I", f"{output_dir}/"],
                 stdin=manifest_f,
-                check=True,
+                capture_output=True,
+                text=True,
                 env=env,
             )
-    except subprocess.CalledProcessError as e:
-        logger.warning("Fitzpatrick17k GCS download had errors: %s", e)
+        if result.returncode != 0:
+            stderr = result.stderr or ""
+            if "403" in stderr or "Permission" in stderr:
+                logger.info(
+                    "Fitzpatrick17k GCS bucket not accessible (403) — "
+                    "falling back to URL downloads."
+                )
+            else:
+                logger.warning("Fitzpatrick17k GCS download failed: %s", stderr.strip())
     except FileNotFoundError:
         logger.warning("Fitzpatrick17k: 'gcloud' CLI not found, skipping GCS.")
         return 0

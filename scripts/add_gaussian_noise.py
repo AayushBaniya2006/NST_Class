@@ -9,14 +9,12 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from src.data.prepare import _IMAGE_EXTENSIONS
+from src.data.prepare import _IMAGE_EXTENSIONS, _EXTENSIONS_SET
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-_EXTENSIONS_SET = {ext.lower() for ext in _IMAGE_EXTENSIONS}
 
 
 def add_gaussian_noise(

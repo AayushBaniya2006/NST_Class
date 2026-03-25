@@ -48,7 +48,7 @@ def get_augmentation_pipeline(image_size: int = 224, bucket: str = "combined") -
     if bucket == "flip":
         transforms = [A.HorizontalFlip(p=1.0)]
     elif bucket == "rotate":
-        transforms = [A.Rotate(limit=30, border_mode=0, value=0, p=1.0)]
+        transforms = [A.Rotate(limit=30, border_mode=0, p=1.0)]
     elif bucket == "crop":
         transforms = [
             A.RandomResizedCrop(
@@ -63,7 +63,7 @@ def get_augmentation_pipeline(image_size: int = 224, bucket: str = "combined") -
     elif bucket == "combined":
         transforms = [
             A.HorizontalFlip(p=0.5),
-            A.Rotate(limit=30, border_mode=0, value=0, p=0.8),
+            A.Rotate(limit=30, border_mode=0, p=0.8),
             A.RandomResizedCrop(
                 size=(image_size, image_size),
                 scale=(0.8, 1.0),
