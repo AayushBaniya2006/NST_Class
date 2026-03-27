@@ -47,6 +47,7 @@ Thumbs.db
 combined_dataset.csv
 fitzpatrick17k.xlsx
 balanced_dataset.csv
+*.zip
 
 # Workspace artifacts
 docs/superpowers/
